@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+dist/
+
+# Node (frontend, from P6)
+node_modules/
+apps/webdemo/frontend/dist/
+
+# Env & secrets
+.env
+.env.*
+!.env.example
+
+# Artifacts (large files go through Git LFS; scratch outputs stay out)
+artifacts/scratch/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

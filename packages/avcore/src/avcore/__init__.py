@@ -12,6 +12,7 @@ from avcore.errors import (
     UnknownLaneletError,
     UnreachableGoalError,
 )
+from avcore.filtering import filter_lanelets, max_curvature, rank_routes
 from avcore.graph import Edge, EdgeKind, RoutingGraph
 from avcore.models import Lanelet, LaneletId, LaneletSubtype, LatLng, Point2D, RouteResult
 from avcore.planner import CostModel, Distance, TravelTime, plan_route
@@ -33,5 +34,8 @@ __all__ = [
     "TravelTime",
     "UnknownLaneletError",
     "UnreachableGoalError",
+    "filter_lanelets",
+    "max_curvature",
     "plan_route",
+    "rank_routes",
 ]

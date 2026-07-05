@@ -5,11 +5,15 @@ description = "Live demo backend: REST + WebSocket contracts, session simulator 
 requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
+    "fastapi>=0.111",
+    "uvicorn>=0.30",
     "avcore",
+    "avmap-tools",
 ]
 
 [tool.uv.sources]
 avcore = { workspace = true }
+avmap-tools = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

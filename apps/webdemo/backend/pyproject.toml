@@ -6,7 +6,7 @@ requires-python = ">=3.11"
 dependencies = [
     "pydantic>=2.7",
     "fastapi>=0.111",
-    "uvicorn>=0.30",
+    "uvicorn[standard]>=0.30",
     "avcore",
     "avmap-tools",
 ]

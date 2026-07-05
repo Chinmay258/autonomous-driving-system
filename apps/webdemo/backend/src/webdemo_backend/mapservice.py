@@ -111,6 +111,21 @@ class MapService:
     def get_route(self, route_id: str) -> StoredRoute | None:
         return self._routes.get(route_id)
 
+    def road_network_geojson(self) -> dict[str, object]:
+        """All lanelet centerlines as a FeatureCollection (frontend base layer)."""
+        features: list[dict[str, object]] = [
+            {
+                "type": "Feature",
+                "properties": {"id": int(ll.id), "speed_limit_mps": ll.speed_limit_mps},
+                "geometry": {
+                    "type": "LineString",
+                    "coordinates": self.to_geojson_coords(ll.centerline),
+                },
+            }
+            for ll in self._lanelets.values()
+        ]
+        return {"type": "FeatureCollection", "features": features}
+
     def to_geojson_coords(self, points: tuple[Point2D, ...]) -> list[tuple[float, float]]:
         coords = []
         for point in points:

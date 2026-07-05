@@ -35,7 +35,22 @@ docs/adr/                 # architecture decision records
 infra/                    # compose + cloudflared, fly.toml stub (P7)
 ```
 
+## Run the demo locally
+
+```bash
+uv run uvicorn webdemo_backend.app:create_app --factory --port 8017
+# open http://localhost:8017 — click two points on the road network, hit Drive
+```
+
 ## Status
-**Phase P0 (foundation) — complete:** workspace, CI, typed domain models,
-routing graph, frozen REST/WS contracts, planner API surface (A* lands in P1).
-See [ARCHITECTURE.md](ARCHITECTURE.md) §16 for the phase plan and acceptance criteria.
+| Phase | State |
+|---|---|
+| P0 foundation (workspace, CI, contracts) | ✅ done |
+| P1 planning core (A*, cost models, filtering; Hypothesis-verified vs Dijkstra) | ✅ done |
+| P2 map tooling (Lanelet2 OSM IO, graph derivation, validation, synthetic town) | ✅ done |
+| P5 backend (FastAPI /plan + /ws/drive, bicycle sim + pure pursuit) | ✅ done |
+| P6 frontend (MapLibre UI: markers → route → live drive telemetry) | ✅ done (zero-build) |
+| P3 lane detection · P4 Autoware eval (WSL2) · P7 deploy (Cloudflare Tunnel) | ⏭ next |
+
+91 tests · ~96% coverage · mypy --strict · deterministic planner.
+See [ARCHITECTURE.md](ARCHITECTURE.md) §16 for acceptance criteria per phase.

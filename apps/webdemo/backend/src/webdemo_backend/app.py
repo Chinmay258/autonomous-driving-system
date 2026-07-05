@@ -5,9 +5,10 @@ from __future__ import annotations
 import asyncio
 import math
 import os
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 
 from avcore import LatLng as CoreLatLng
 from avcore import Point2D, UnreachableGoalError
@@ -48,6 +49,16 @@ def create_app() -> FastAPI:
     @app.get("/healthz")
     def healthz() -> dict[str, object]:
         return {"status": "ok", "lanelets": service.lanelet_count}
+
+    @app.get("/map/roads")
+    def map_roads() -> dict[str, object]:
+        return service.road_network_geojson()
+
+    static_dir = Path(__file__).parent / "static"
+
+    @app.get("/", include_in_schema=False)
+    def index() -> FileResponse:
+        return FileResponse(static_dir / "index.html")
 
     @app.post("/plan", response_model=PlanResponse, responses={422: {"model": PlanError}})
     def plan(request: PlanRequest) -> PlanResponse | JSONResponse:

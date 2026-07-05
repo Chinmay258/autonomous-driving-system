@@ -51,6 +51,19 @@ class TestHealth:
         assert response.status_code == 200
         assert response.json()["lanelets"] > 0
 
+    def test_index_serves_frontend(self, client: TestClient) -> None:
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "AV Route Planning Demo" in response.text
+
+    def test_road_network_geojson(self, client: TestClient) -> None:
+        data = client.get("/map/roads").json()
+        assert data["type"] == "FeatureCollection"
+        assert len(data["features"]) > 50
+        first = data["features"][0]
+        assert first["geometry"]["type"] == "LineString"
+        assert len(first["geometry"]["coordinates"]) >= 2
+
 
 class TestPlanEndpoint:
     def test_plan_happy_path(self, client: TestClient, service: MapService) -> None:

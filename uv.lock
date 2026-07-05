@@ -10,6 +10,7 @@ resolution-markers = [
 members = [
     "autonomous-driving",
     "avcore",
+    "avmap-tools",
     "webdemo-backend",
 ]
 
@@ -92,6 +93,17 @@ dev = [
 name = "avcore"
 version = "0.1.0"
 source = { editable = "packages/avcore" }
+
+[[package]]
+name = "avmap-tools"
+version = "0.1.0"
+source = { editable = "packages/avmap_tools" }
+dependencies = [
+    { name = "avcore" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "avcore", editable = "packages/avcore" }]
 
 [[package]]
 name = "colorama"

@@ -1,8 +1,4 @@
-"""Contract tests for the frozen plan_route API.
-
-Input validation is active now; the A* pass itself is P1 (xfail strict, so CI
-flips loudly the moment it's implemented and these must be replaced).
-"""
+"""Contract tests for the frozen plan_route API surface."""
 
 import pytest
 
@@ -28,7 +24,8 @@ def test_unknown_goal_raises(graph: RoutingGraph) -> None:
         plan_route(graph, LaneletId(1), LaneletId(99))
 
 
-@pytest.mark.xfail(reason="A* lands in P1", raises=NotImplementedError, strict=True)
-def test_plan_route_same_node(graph: RoutingGraph) -> None:
+def test_same_node_route(graph: RoutingGraph) -> None:
     result = plan_route(graph, LaneletId(1), LaneletId(1))
     assert result.lanelet_ids == (LaneletId(1),)
+    assert result.centerline == graph.lanelet(LaneletId(1)).centerline
+    assert result.lane_changes == 0

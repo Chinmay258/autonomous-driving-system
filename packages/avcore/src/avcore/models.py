@@ -72,6 +72,12 @@ class Lanelet:
     def length_m(self) -> float:
         return polyline_length(self.centerline)
 
+    @property
+    def mean_width_m(self) -> float:
+        """Mean distance between paired bound vertices (naive pairing, cf. centerline)."""
+        pairs = list(zip(self.left_bound, self.right_bound, strict=False))
+        return sum(lp.distance_to(rp) for lp, rp in pairs) / len(pairs)
+
 
 def polyline_length(points: tuple[Point2D, ...]) -> float:
     """Sum of segment lengths; 0.0 for fewer than 2 points."""

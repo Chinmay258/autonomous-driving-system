@@ -53,6 +53,35 @@ class TestFilterLanelets:
         assert LaneletId(50) not in g  # original untouched
 
 
+class TestStrongConnectivity:
+    def _graph_with_one_way_stub(self) -> RoutingGraph:
+        # Cycle 1 -> 2 -> 3 -> 1 plus a one-way stub 3 -> 4 (no way back):
+        # weakly connected as a whole, but 4 can never reach anyone.
+        g = RoutingGraph()
+        g.add_lanelet(box_lanelet(1, 0.0, 0.0, 10.0))
+        g.add_lanelet(box_lanelet(2, 10.0, 0.0, 10.0))
+        g.add_lanelet(box_lanelet(3, 20.0, 0.0, 10.0))
+        g.add_lanelet(box_lanelet(4, 30.0, 0.0, 10.0))
+        g.add_edge(LaneletId(1), LaneletId(2), EdgeKind.SUCCESSOR)
+        g.add_edge(LaneletId(2), LaneletId(3), EdgeKind.SUCCESSOR)
+        g.add_edge(LaneletId(3), LaneletId(1), EdgeKind.SUCCESSOR)
+        g.add_edge(LaneletId(3), LaneletId(4), EdgeKind.SUCCESSOR)
+        return g
+
+    def test_weak_keeps_stub_strong_prunes_it(self) -> None:
+        g = self._graph_with_one_way_stub()
+        assert sorted(filter_lanelets(g)) == [1, 2, 3, 4]
+        assert sorted(filter_lanelets(g, require_strong=True)) == [1, 2, 3]
+
+    def test_every_pair_routable_after_strong_filter(self) -> None:
+        from avcore import plan_route
+
+        strong = filter_lanelets(self._graph_with_one_way_stub(), require_strong=True)
+        for start in strong:
+            for goal in strong:
+                assert plan_route(strong, start, goal).lanelet_ids[-1] == goal
+
+
 def route(ids: tuple[int, ...], eta: float, dist: float, changes: int) -> RouteResult:
     return RouteResult(
         lanelet_ids=tuple(LaneletId(i) for i in ids),

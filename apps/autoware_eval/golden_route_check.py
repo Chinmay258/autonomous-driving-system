@@ -17,6 +17,7 @@ import argparse
 import json
 import math
 import sys
+from itertools import pairwise
 
 import lanelet2
 import rclpy
@@ -29,11 +30,11 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 def pose_on_lanelet(lanelet_obj, fraction: float):
     """(x, y, yaw) at an arclength fraction along the lanelet centerline."""
     pts = [(p.x, p.y) for p in lanelet_obj.centerline]
-    seg_lengths = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts[:-1], pts[1:])]
+    seg_lengths = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in pairwise(pts)]
     total = sum(seg_lengths)
     target = max(0.0, min(total, fraction * total))
     run = 0.0
-    for (a, b), seg in zip(zip(pts[:-1], pts[1:]), seg_lengths):
+    for (a, b), seg in zip(pairwise(pts), seg_lengths, strict=True):
         if run + seg >= target and seg > 0:
             t = (target - run) / seg
             x = a[0] + t * (b[0] - a[0])

@@ -8,7 +8,7 @@ requires-python = ">=3.11"
 package = false
 
 [tool.uv.workspace]
-members = ["packages/avcore", "packages/avmap_tools", "apps/webdemo/backend"]
+members = ["packages/avcore", "packages/avmap_tools", "packages/avlane", "apps/webdemo/backend"]
 
 [dependency-groups]
 dev = [
@@ -33,16 +33,22 @@ plugins = ["pydantic.mypy"]
 files = [
     "packages/avcore/src/avcore",
     "packages/avmap_tools/src/avmap_tools",
+    "packages/avlane/src/avlane",
     "apps/webdemo/backend/src/webdemo_backend",
 ]
+
+[[tool.mypy.overrides]]
+module = ["cv2", "cv2.*"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = [
     "packages/avcore/tests",
     "packages/avmap_tools/tests",
+    "packages/avlane/tests",
     "apps/webdemo/backend/tests",
 ]
-addopts = "-q --cov=avcore --cov=avmap_tools --cov=webdemo_backend --cov-report=term-missing"
+addopts = "-q --cov=avcore --cov=avmap_tools --cov=avlane --cov=webdemo_backend --cov-report=term-missing"
 
 [tool.coverage.report]
 fail_under = 80

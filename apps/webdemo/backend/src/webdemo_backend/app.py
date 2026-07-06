@@ -42,6 +42,8 @@ def create_app() -> FastAPI:
     else:
         service = MapService.from_synthetic_town(blocks=int(os.environ.get("AV_TOWN_BLOCKS", "3")))
     realtime = os.environ.get("AV_SIM_REALTIME", "1") == "1"
+    max_drives = int(os.environ.get("AV_MAX_CONCURRENT_DRIVES", "20"))
+    active_drives = 0
     app.state.mapservice = service
 
     def plan_error(code: PlanErrorCode, detail: str, status: int = 422) -> JSONResponse:
@@ -103,10 +105,14 @@ def create_app() -> FastAPI:
 
     @app.websocket("/ws/drive")
     async def drive(ws: WebSocket) -> None:
+        nonlocal active_drives
         await ws.accept()
         stored = service.get_route(ws.query_params.get("route_id", ""))
         if stored is None:
             await ws.close(code=4404, reason="unknown route_id")
+            return
+        if active_drives >= max_drives:
+            await ws.close(code=4429, reason="too many concurrent drives; try again shortly")
             return
 
         try:
@@ -137,6 +143,7 @@ def create_app() -> FastAPI:
                 cancelled = True
 
         reader = asyncio.create_task(read_commands())
+        active_drives += 1
         try:
             while True:
                 if cancelled:
@@ -159,6 +166,7 @@ def create_app() -> FastAPI:
         except WebSocketDisconnect:
             pass
         finally:
+            active_drives -= 1
             reader.cancel()
 
     return app

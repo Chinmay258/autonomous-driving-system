@@ -59,7 +59,9 @@ uv run python -m avmap_tools.import_osm --bbox "41.385,2.158,41.398,2.174" --out
 | P2 map tooling (Lanelet2 OSM IO, graph derivation, validation, synthetic town) | ✅ done |
 | P5 backend (FastAPI /plan + /ws/drive, bicycle sim + pure pursuit) | ✅ done |
 | P6 frontend (MapLibre UI: markers → route → live drive telemetry) | ✅ done (zero-build) |
-| P3 lane detection · P4 Autoware eval (WSL2) · P7 deploy (Cloudflare Tunnel) | ⏭ next |
+| P2b real-city map (OSM lane-level import, strict lane discipline, Barcelona artifact) | ✅ done |
+| P7 deploy (Docker + Cloudflare Tunnel from always-on host, fly.toml migration stub) | ✅ done |
+| P3 lane detection · P4 Autoware eval (WSL2) | ⏭ next |
 
 91 tests · ~96% coverage · mypy --strict · deterministic planner.
 See [ARCHITECTURE.md](ARCHITECTURE.md) §16 for acceptance criteria per phase.

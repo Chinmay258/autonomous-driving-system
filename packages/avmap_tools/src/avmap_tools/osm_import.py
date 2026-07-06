@@ -184,40 +184,33 @@ def _heading(a: Point2D, b: Point2D) -> float:
     return math.atan2(b.y - a.y, b.x - a.x)
 
 
-def _bezier(a: Point2D, control: Point2D, b: Point2D, samples: int = 7) -> list[Point2D]:
+def _cubic_fillet(
+    a: Point2D, heading_a: float, b: Point2D, heading_b: float, samples: int = 10
+) -> list[Point2D]:
+    """Road fillet: cubic bezier with controls along the entry/exit tangents.
+
+    Tangent-continuous at both ends for any turn angle — straights stay
+    straight, acute crossings sweep clean arcs, U-turns form a tight loop —
+    with no special-case control-point logic to misbehave. The tangent reach
+    grows with turn sharpness so acute turns get a driveable radius instead
+    of a pointy apex.
+    """
+    gap = a.distance_to(b)
+    sharpness = 1.0 + abs(_signed_angle(heading_a, heading_b)) / math.pi  # 1..2
+    reach = min(16.0, max(2.0, 0.45 * gap * sharpness))
+    c1 = Point2D(a.x + math.cos(heading_a) * reach, a.y + math.sin(heading_a) * reach)
+    c2 = Point2D(b.x - math.cos(heading_b) * reach, b.y - math.sin(heading_b) * reach)
     pts = []
     for i in range(samples + 1):
         t = i / samples
         omt = 1.0 - t
         pts.append(
             Point2D(
-                omt * omt * a.x + 2 * omt * t * control.x + t * t * b.x,
-                omt * omt * a.y + 2 * omt * t * control.y + t * t * b.y,
+                omt**3 * a.x + 3 * omt**2 * t * c1.x + 3 * omt * t**2 * c2.x + t**3 * b.x,
+                omt**3 * a.y + 3 * omt**2 * t * c1.y + 3 * omt * t**2 * c2.y + t**3 * b.y,
             )
         )
     return _dedupe(pts)
-
-
-def _turn_control_point(a: Point2D, heading_a: float, b: Point2D, heading_b: float) -> Point2D:
-    """Control point for a turning arc: intersection of the entry/exit rays.
-
-    Falls back to a forward bulge (U-turns, near-parallel rays) or the plain
-    midpoint (straight continuations).
-    """
-    delta = _signed_angle(heading_a, heading_b)
-    if abs(delta) < STRAIGHT_MAX_RAD:
-        return Point2D((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
-    dax, day = math.cos(heading_a), math.sin(heading_a)
-    dbx, dby = math.cos(heading_b), math.sin(heading_b)
-    det = dax * dby - day * dbx
-    if abs(det) > 1e-6:
-        t = ((b.x - a.x) * dby - (b.y - a.y) * dbx) / det
-        u = (dax * (b.y - a.y) - day * (b.x - a.x)) / det
-        if 0.0 < t <= 60.0 and 0.0 < u <= 60.0:
-            return Point2D(a.x + t * dax, a.y + t * day)
-    # U-turn / degenerate: bulge into the junction along the entry heading.
-    bulge = min(6.0, a.distance_to(b) * 0.5)
-    return Point2D((a.x + b.x) / 2.0 + dax * bulge, (a.y + b.y) / 2.0 + day * bulge)
 
 
 @dataclass
@@ -275,7 +268,7 @@ class _Importer:
             return
         heading_a = _heading(source.centerline[-2], source.centerline[-1])
         heading_b = _heading(target.centerline[0], target.centerline[1])
-        center = _bezier(a, _turn_control_point(a, heading_a, b, heading_b), b)
+        center = _cubic_fillet(a, heading_a, b, heading_b)
         if len(center) < 2:
             return
         half = LANE_WIDTH_M / 2.0

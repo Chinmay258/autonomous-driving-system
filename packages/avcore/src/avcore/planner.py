@@ -92,8 +92,36 @@ class TravelTime:
         return _endpoint(node).distance_to(_endpoint(goal)) / max_speed_mps
 
 
-LANE_CHANGE_MIN_M = 8.0
-LANE_CHANGE_MAX_M = 35.0
+LANE_CHANGE_MIN_M = 10.0
+LANE_CHANGE_MAX_M = 40.0
+LANE_CHANGE_PER_LANE_M = 14.0
+
+
+def _cubic_bezier(
+    a: Point2D, c1: Point2D, c2: Point2D, b: Point2D, samples: int = 8
+) -> list[Point2D]:
+    pts: list[Point2D] = []
+    for i in range(samples + 1):
+        t = i / samples
+        omt = 1.0 - t
+        pts.append(
+            Point2D(
+                omt**3 * a.x + 3 * omt**2 * t * c1.x + 3 * omt * t**2 * c2.x + t**3 * b.x,
+                omt**3 * a.y + 3 * omt**2 * t * c1.y + 3 * omt * t**2 * c2.y + t**3 * b.y,
+            )
+        )
+    return pts
+
+
+def _tail_direction(points: tuple[Point2D, ...]) -> Point2D:
+    """Unit direction of the polyline's final segment (fallback: overall)."""
+    a, b = (points[-2], points[-1]) if len(points) >= 2 else (points[0], points[-1])
+    if a == b and len(points) >= 2:
+        a, b = points[0], points[-1]
+    length = a.distance_to(b)
+    if length == 0:
+        return Point2D(1.0, 0.0)
+    return Point2D((b.x - a.x) / length, (b.y - a.y) / length)
 
 
 def _build_result(
@@ -103,33 +131,63 @@ def _build_result(
 ) -> RouteResult:
     """Stitch the route geometry.
 
-    Successor hops concatenate centerlines. A lateral hop is a *forward
-    diagonal*: the previous lane's tail is cut back by the lane-change length
-    and the path lands near the end of the neighbouring lane — never
-    re-traversing the parallel span (which is what used to draw zigzags).
+    Successor hops concatenate centerlines. A *run* of consecutive lateral
+    hops (crossing one or more lanes) becomes a single smooth forward
+    diagonal: the current lane's tail is cut back and a tangent-aligned
+    cubic eases across to the end of the final lane in the run — one clean
+    maneuver instead of stacked per-lane jogs.
     """
     lanelets = [graph.lanelet(lid) for lid in ids]
     pieces: list[list[Point2D]] = [list(lanelets[0].centerline)]
     piece_speeds: list[float] = [lanelets[0].speed_limit_mps]
 
-    for lanelet, kind in zip(lanelets[1:], kinds, strict=True):
-        if kind is EdgeKind.SUCCESSOR:
+    i = 0
+    while i < len(kinds):
+        if kinds[i] is EdgeKind.SUCCESSOR:
+            lanelet = lanelets[i + 1]
             pieces.append(list(lanelet.centerline))
             piece_speeds.append(lanelet.speed_limit_mps)
+            i += 1
             continue
-        # Lane change: cut the tail of what we drove on the previous lane...
+
+        # Aggregate the whole lateral run ending at lanelets[j].
+        j = i
+        while j < len(kinds) and kinds[j] is not EdgeKind.SUCCESSOR:
+            j += 1
+        final_lane = lanelets[j]
+        lanes_crossed = j - i
+
         prev = tuple(pieces[-1])
         prev_len = polyline_length(prev)
-        change_len = min(LANE_CHANGE_MAX_M, max(LANE_CHANGE_MIN_M, 0.25 * prev_len))
-        if change_len >= prev_len:
-            change_len = prev_len / 2.0
-        pieces[-1] = list(slice_polyline(prev, 0.0, prev_len - change_len))
-        # ...and land near the end of the neighbouring lane.
-        neighbour = lanelet.centerline
-        neighbour_len = polyline_length(neighbour)
-        tail_from = max(0.0, neighbour_len - min(2.0, neighbour_len * 0.1))
-        pieces.append(list(slice_polyline(neighbour, tail_from, neighbour_len)))
-        piece_speeds.append(lanelet.speed_limit_mps)
+        change_len = min(
+            LANE_CHANGE_MAX_M,
+            max(LANE_CHANGE_MIN_M, LANE_CHANGE_PER_LANE_M * lanes_crossed),
+        )
+        if change_len >= prev_len * 0.9:
+            change_len = prev_len * 0.5
+        cut_piece = list(slice_polyline(prev, 0.0, prev_len - change_len))
+        pieces[-1] = cut_piece
+
+        target_line = final_lane.centerline
+        target_len = polyline_length(target_line)
+        landing = list(slice_polyline(target_line, max(0.0, target_len - 1.0), target_len))
+
+        # Tangent-aligned cubic across the lanes: smooth entry and exit.
+        a, b = cut_piece[-1], landing[0]
+        dir_a = _tail_direction(tuple(cut_piece))
+        dir_b = _tail_direction(target_line)
+        ease = max(2.0, change_len * 0.35)
+        diagonal = _cubic_bezier(
+            a,
+            Point2D(a.x + dir_a.x * ease, a.y + dir_a.y * ease),
+            Point2D(b.x - dir_b.x * ease, b.y - dir_b.y * ease),
+            b,
+        )[1:-1]  # endpoints already live in neighbouring pieces
+        pieces.append(diagonal)
+        piece_speeds.append(final_lane.speed_limit_mps)
+        pieces.append(landing)
+        piece_speeds.append(final_lane.speed_limit_mps)
+        i = j
 
     points: list[Point2D] = []
     speeds: list[float] = []

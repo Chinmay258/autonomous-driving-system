@@ -24,6 +24,7 @@ from avcore import (
     TravelTime,
     filter_lanelets,
     plan_route,
+    trim_route,
 )
 from avcore.graph import RoutingGraph
 from avcore.models import Lanelet
@@ -111,27 +112,15 @@ class MapService:
         goal_id = self.snap(goal)
         model = Distance() if cost is CostKind.DISTANCE else TravelTime()
         route = plan_route(self._graph, start_id, goal_id, model)
-        stored = StoredRoute(route=route, speed_limits_mps=self._speeds_for(route))
+        # Cut the route to the exact clicked positions so the vehicle starts
+        # and arrives at the markers, not at lanelet boundaries.
+        route = trim_route(route, self.projector.to_local(start), self.projector.to_local(goal))
+        stored = StoredRoute(route=route, speed_limits_mps=route.speed_limits_mps)
         route_id = f"r_{secrets.token_hex(8)}"
         self._routes[route_id] = stored
         while len(self._routes) > MAX_STORED_ROUTES:
             self._routes.popitem(last=False)
         return route_id, stored
-
-    def _speeds_for(self, route: RouteResult) -> tuple[float, ...]:
-        """Per-centerline-point speed limits, aligned with the stitched centerline."""
-        speeds: list[float] = []
-        seen = 0
-        for lanelet_id in route.lanelet_ids:
-            lanelet = self._lanelets[lanelet_id]
-            for point in lanelet.centerline:
-                if seen < len(route.centerline) and route.centerline[seen] == point:
-                    speeds.append(lanelet.speed_limit_mps)
-                    seen += 1
-        # Stitching dedupes joint points; pad defensively if alignment drifted.
-        while len(speeds) < len(route.centerline):
-            speeds.append(speeds[-1] if speeds else 8.3)
-        return tuple(speeds)
 
     def get_route(self, route_id: str) -> StoredRoute | None:
         return self._routes.get(route_id)
@@ -141,7 +130,11 @@ class MapService:
         features: list[dict[str, object]] = [
             {
                 "type": "Feature",
-                "properties": {"id": int(ll.id), "speed_limit_mps": ll.speed_limit_mps},
+                "properties": {
+                    "id": int(ll.id),
+                    "speed_limit_mps": ll.speed_limit_mps,
+                    "kind": "connector" if ll.is_connector else "lane",
+                },
                 "geometry": {
                     "type": "LineString",
                     "coordinates": self.to_geojson_coords(ll.centerline),

@@ -53,6 +53,7 @@ class _Builder:
             left_bound=(source.left_bound[-1], target.left_bound[0]),
             right_bound=(source.right_bound[-1], target.right_bound[0]),
             speed_limit_mps=TURN_SPEED_MPS,
+            is_connector=True,
         )
         self.next_id += 1
         self.lanelets.append(lanelet)

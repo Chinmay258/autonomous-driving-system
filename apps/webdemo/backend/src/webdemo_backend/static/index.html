@@ -89,15 +89,46 @@ const map = new maplibregl.Map({
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
+function makeArrowImage(size = 22) {
+  const c = document.createElement('canvas');
+  c.width = size; c.height = size;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#9fb2c8';
+  ctx.strokeStyle = '#0e1116'; ctx.lineWidth = 2;
+  ctx.beginPath();               // chevron pointing +x (line direction)
+  ctx.moveTo(size * 0.25, size * 0.22);
+  ctx.lineTo(size * 0.72, size * 0.5);
+  ctx.lineTo(size * 0.25, size * 0.78);
+  ctx.lineTo(size * 0.40, size * 0.5);
+  ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  return ctx.getImageData(0, 0, size, size);
+}
+
 map.on('load', async () => {
   const roads = await (await fetch('/map/roads')).json();
   map.addSource('roads', { type: 'geojson', data: roads });
-  map.addLayer({ id: 'roads-casing', type: 'line', source: 'roads',
+  const isLane = ['==', ['get', 'kind'], 'lane'];
+  const isConnector = ['==', ['get', 'kind'], 'connector'];
+  // Junction connectors: thin, dim, curved — visible but never dominant.
+  map.addLayer({ id: 'connectors', type: 'line', source: 'roads', filter: isConnector,
+    paint: { 'line-color': '#2c3947', 'line-width': 1.3, 'line-opacity': 0.55 },
+    layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  // Lanes: casing + fill.
+  map.addLayer({ id: 'roads-casing', type: 'line', source: 'roads', filter: isLane,
     paint: { 'line-color': '#11151b', 'line-width': 4.5, 'line-opacity': 0.9 },
     layout: { 'line-cap': 'round', 'line-join': 'round' } });
-  map.addLayer({ id: 'roads', type: 'line', source: 'roads',
+  map.addLayer({ id: 'roads', type: 'line', source: 'roads', filter: isLane,
     paint: { 'line-color': '#3d444d', 'line-width': 2.2 },
     layout: { 'line-cap': 'round', 'line-join': 'round' } });
+  // Direction chevrons riding each lane, rotated with the line.
+  map.addImage('lane-arrow', makeArrowImage());
+  map.addLayer({ id: 'lane-arrows', type: 'symbol', source: 'roads', filter: isLane,
+    layout: { 'symbol-placement': 'line', 'symbol-spacing': 55,
+              'icon-image': 'lane-arrow', 'icon-size': 0.55,
+              'icon-allow-overlap': true, 'icon-ignore-placement': true,
+              'icon-rotation-alignment': 'map' },
+    minzoom: 15 });
   map.addSource('route', { type: 'geojson', data: emptyFC() });
   map.addLayer({ id: 'route', type: 'line', source: 'route',
     paint: { 'line-color': '#58a6ff', 'line-width': 3.5, 'line-opacity': 0.95 },

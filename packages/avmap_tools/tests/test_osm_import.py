@@ -67,10 +67,18 @@ class TestLaneSynthesis:
     def test_lanelet_count(self, imported) -> None:
         lanelets, _ = imported
         # Streets: primary 2 segs x (2 fwd + 2 bwd) = 8; oneway 2 segs x 3 = 6.
-        # Connectors: east-in (2 straight + 1 left) + west-in (2 straight +
-        # 1 right) + north-in (3 straight + 1 left + 1 right) = 11... and no
-        # more (no south-out exists on the oneway).
-        assert len(lanelets) == 14 + 11
+        # Junction connectors: east-in (2 straight + 1 left + 1 U-turn) +
+        # west-in (2 straight + 1 right + 1 U-turn) + north-in (3 straight +
+        # 1 left + 1 right; no U-turn on the oneway) = 13. Plus dead-end
+        # U-turns at the primary's two tips = 2 (turn around at a cul-de-sac).
+        assert len(lanelets) == 14 + 13 + 2
+
+    def test_connectors_are_flagged_and_curved(self, imported) -> None:
+        lanelets, _ = imported
+        connectors = [ll for ll in lanelets if ll.is_connector]
+        assert len(connectors) == 15
+        # Bezier sampling: turning connectors carry more than 2 bound points.
+        assert max(len(c.left_bound) for c in connectors) > 2
 
     def test_map_validates(self, imported) -> None:
         lanelets, _ = imported
@@ -123,6 +131,20 @@ class TestLaneDiscipline:
         assert result.lane_changes >= 1
         assert LaneletId(8) in result.lanelet_ids  # the rightmost westbound lane
 
+    def test_uturn_from_leftmost_lane(self, imported) -> None:
+        lanelets, graph = imported
+        # Goal directly behind on the same street: eastbound leftmost (1) can
+        # U-turn at the junction onto westbound leftmost (3).
+        result = plan_route(graph, LaneletId(1), LaneletId(3))
+        assert result.lanelet_ids[0] == LaneletId(1)
+        assert result.lanelet_ids[-1] == LaneletId(3)
+        by_id = {ll.id: ll for ll in lanelets}
+        assert any(by_id[lid].is_connector for lid in result.lanelet_ids)
+        # The rightmost eastbound lane (2) has no U-turn of its own: any route
+        # must first change left into lane 1.
+        result2 = plan_route(graph, LaneletId(2), LaneletId(3))
+        assert result2.lane_changes >= 1
+
     def test_straight_preserves_lane_index(self, imported) -> None:
         _, graph = imported
         # Eastbound left lane (1) continues via a straight connector into the
@@ -163,5 +185,8 @@ class TestRobustness:
   <way id="2"><nd ref="2" /><nd ref="3" /><tag k="highway" v="residential" /></way>
 </osm>"""
         lanelets, _ = import_osm_roads(xml, origin=ORIGIN)
-        # Only the residential way, 1 lane each direction, no junction split.
-        assert len(lanelets) == 2
+        # Only the residential way: 1 lane each direction, no junction split,
+        # plus a dead-end U-turn at each tip.
+        streets = [ll for ll in lanelets if not ll.is_connector]
+        assert len(streets) == 2
+        assert len(lanelets) == 4

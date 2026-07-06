@@ -50,9 +50,10 @@ class StoredRoute:
 class MapService:
     def __init__(self, lanelets: list[Lanelet], origin: LatLng) -> None:
         validate_map(lanelets).raise_if_failed()
-        # Restrict to the sane, largest connected component: real-map imports
-        # can carry bbox-clipped stubs that would strand the vehicle.
-        self._graph: RoutingGraph = filter_lanelets(build_graph(lanelets))
+        # Restrict to the largest STRONGLY connected component: any snapped
+        # start can reach any snapped goal, so "no route" can never surface
+        # to a visitor (bbox-clipped one-way stubs are pruned from snapping).
+        self._graph: RoutingGraph = filter_lanelets(build_graph(lanelets), require_strong=True)
         if len(self._graph) == 0:
             raise MapValidationError("no drivable connected lanelets after filtering")
         self._lanelets = {lid: self._graph.lanelet(lid) for lid in self._graph}

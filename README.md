@@ -27,14 +27,14 @@ Windows without make: `uv sync --all-packages && uv run pytest`.
 
 ## Repository layout
 ```
-packages/avcore/          # map model · routing graph · filtering · A* (the shared brain)
-apps/webdemo/backend/     # wire contracts now; FastAPI + simulator in P5
-apps/webdemo/frontend/    # MapLibre UI (P6)
-apps/autoware_eval/       # pinned Autoware planning-sim setup + EVAL protocol (P4)
-packages/avlane/          # lane detection: classical CV + UFLD-ONNX comparison (P3)
-packages/avmap_tools/     # polyline→Lanelet2, OSM→Lanelet2, validators (P2)
+packages/avcore/          # map model · routing graph · filtering (SCC) · A* (the shared brain)
+packages/avmap_tools/     # OSM→Lanelet2 lane-level import, polyline→lanelets, IO, validators
+packages/avlane/          # camera lane detection: threshold→BEV→sliding-window fit, metric output
+apps/webdemo/backend/     # FastAPI /plan + /ws/drive, vehicle sim, zero-build MapLibre frontend
+apps/autoware_eval/       # headless Autoware golden evaluation (EVAL.md has results)
 docs/adr/                 # architecture decision records
-infra/                    # compose + cloudflared, fly.toml stub (P7)
+infra/                    # compose + cloudflared, fly.toml stub
+maps/                     # canonical Lanelet2 artifacts (Autoware-validated)
 ```
 
 ## Run the demo locally
@@ -61,7 +61,8 @@ uv run python -m avmap_tools.import_osm --bbox "41.385,2.158,41.398,2.174" --out
 | P6 frontend (MapLibre UI: markers → route → live drive telemetry) | ✅ done (zero-build) |
 | P2b real-city map (OSM lane-level import, strict lane discipline, Barcelona artifact) | ✅ done |
 | P7 deploy (Docker + Cloudflare Tunnel from always-on host, fly.toml migration stub) | ✅ done |
-| P3 lane detection · P4 Autoware eval (WSL2) | ⏭ next |
+| P4 Autoware eval (headless golden test: strict route match on the same artifact) | ✅ done — [EVAL.md](apps/autoware_eval/EVAL.md) |
+| P3 lane detection (OpenCV pipeline, CI-verified vs synthetic ground truth) | ✅ done |
 
 91 tests · ~96% coverage · mypy --strict · deterministic planner.
 See [ARCHITECTURE.md](ARCHITECTURE.md) §16 for acceptance criteria per phase.

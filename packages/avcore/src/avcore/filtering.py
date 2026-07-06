@@ -50,24 +50,74 @@ def _largest_weak_component(
     return best
 
 
-def filter_lanelets(graph: RoutingGraph) -> RoutingGraph:
+def _largest_scc(nodes: set[LaneletId], graph: RoutingGraph) -> set[LaneletId]:
+    """Largest strongly-connected component (iterative Tarjan)."""
+    index: dict[LaneletId, int] = {}
+    low: dict[LaneletId, int] = {}
+    on_stack: set[LaneletId] = set()
+    stack: list[LaneletId] = []
+    best: set[LaneletId] = set()
+    counter = 0
+
+    for root in sorted(nodes):
+        if root in index:
+            continue
+        work: list[tuple[LaneletId, int]] = [(root, 0)]
+        while work:
+            node, edge_index = work[-1]
+            if edge_index == 0:
+                index[node] = low[node] = counter
+                counter += 1
+                stack.append(node)
+                on_stack.add(node)
+            targets = [e.target for e in graph.edges_from(node) if e.target in nodes]
+            if edge_index < len(targets):
+                work[-1] = (node, edge_index + 1)
+                child = targets[edge_index]
+                if child not in index:
+                    work.append((child, 0))
+                elif child in on_stack:
+                    low[node] = min(low[node], index[child])
+            else:
+                work.pop()
+                if work:
+                    parent = work[-1][0]
+                    low[parent] = min(low[parent], low[node])
+                if low[node] == index[node]:
+                    component: set[LaneletId] = set()
+                    while True:
+                        member = stack.pop()
+                        on_stack.discard(member)
+                        component.add(member)
+                        if member == node:
+                            break
+                    if len(component) > len(best):
+                        best = component
+    return best
+
+
+def filter_lanelets(graph: RoutingGraph, *, require_strong: bool = False) -> RoutingGraph:
     """Return a new graph restricted to sane, drivable, connected lanelets.
 
     Keeps only ROAD lanelets passing width/length sanity, then restricts to
     the largest weakly-connected component (weak, not strong: one-way chains
-    are legitimate roads). Single lanelets with no edges survive only if they
-    are the largest component, i.e. the graph has no edges at all.
+    are legitimate roads). With ``require_strong=True`` it instead keeps the
+    largest strongly-connected component — every kept lanelet can reach every
+    other, so route queries between kept lanelets can never fail (what an
+    interactive demo wants; bbox-clipped one-way stubs are pruned).
     """
     sane = {lid for lid in graph if _is_sane(graph.lanelet(lid))}
 
-    neighbours: dict[LaneletId, set[LaneletId]] = {lid: set() for lid in sane}
-    for lid in sane:
-        for edge in graph.edges_from(lid):
-            if edge.target in sane:
-                neighbours[lid].add(edge.target)
-                neighbours[edge.target].add(lid)
-
-    keep = _largest_weak_component(sane, neighbours)
+    if require_strong:
+        keep = _largest_scc(sane, graph)
+    else:
+        neighbours: dict[LaneletId, set[LaneletId]] = {lid: set() for lid in sane}
+        for lid in sane:
+            for edge in graph.edges_from(lid):
+                if edge.target in sane:
+                    neighbours[lid].add(edge.target)
+                    neighbours[edge.target].add(lid)
+        keep = _largest_weak_component(sane, neighbours)
 
     filtered = RoutingGraph()
     for lid in sorted(keep):

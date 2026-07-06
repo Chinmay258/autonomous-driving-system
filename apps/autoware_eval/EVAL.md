@@ -76,6 +76,17 @@ Both routes are valid and drivable on the same map.
   chord, U-turns are teardrop arcs (radius >= 3 m), fold detection gates every
   connector.
 
+## Visual mode (rviz on the Windows desktop)
+`run_viz.ps1` launches the same simulator with rviz displayed through WSLg
+(Docker Desktop exposes it at `/run/desktop/mnt/host/wslg`). Verified driving
+on the Barcelona map. Two hard-won requirements, baked into the script:
+- **12 CPUs**, not 6: rviz renders via llvmpipe (~3 cores); at 6 the control
+  loop starves, its rate monitors flag ERROR and the controller latches stop.
+- **`overrides/pid.param.yaml`** (mounted over the stock config) disables
+  `enable_keep_stopped_until_steer_convergence`, which deadlocks departure at
+  standstill in this containerized setup (the flag is read once at node boot,
+  so a runtime `ros2 param set` does not help).
+
 ### Operational quirks (WSL2 + docker exec)
 - Probe **immediately** after `waiting odometry` appears; the stack's
   `/initialpose` subscription can stop matching new DDS participants some

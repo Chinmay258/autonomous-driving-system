@@ -49,6 +49,7 @@ class Lanelet:
     speed_limit_mps: float
     one_way: bool = True
     subtype: LaneletSubtype = LaneletSubtype.ROAD
+    is_connector: bool = False  # junction turn/U-turn connector (rendering hint)
 
     def __post_init__(self) -> None:
         if len(self.left_bound) < 2 or len(self.right_bound) < 2:
@@ -97,3 +98,6 @@ class RouteResult:
     distance_m: float
     eta_s: float
     lane_changes: int
+    # Per-centerline-point speed limits (parallel to `centerline`; may be
+    # empty for hand-built results in tests).
+    speed_limits_mps: tuple[float, ...] = ()

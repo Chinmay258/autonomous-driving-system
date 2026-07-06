@@ -1,3 +1,5 @@
+from itertools import pairwise
+
 import pytest
 
 from avcore import Distance, LaneletId, TravelTime, UnreachableGoalError, plan_route
@@ -65,6 +67,20 @@ class TestLaneChanges:
         assert len(result.lanelet_ids) == 3
         assert result.lanelet_ids[0] == LaneletId(1)
         assert result.lanelet_ids[-1] == LaneletId(4)
+
+    def test_lane_change_never_backtracks(self) -> None:
+        # Regression: lane changes used to re-traverse the neighbour lane
+        # from its start, drawing a zigzag. The stitched path must move
+        # strictly forward along the corridor.
+        result = plan_route(lane_change_graph(), LaneletId(1), LaneletId(4))
+        xs = [p.x for p in result.centerline]
+        assert all(b >= a - 1e-9 for a, b in pairwise(xs))
+        # Parallel span is traversed once: ~100 m + a short diagonal, not 150.
+        assert 95.0 < result.distance_m < 115.0
+
+    def test_lane_change_speeds_parallel_to_centerline(self) -> None:
+        result = plan_route(lane_change_graph(), LaneletId(1), LaneletId(4))
+        assert len(result.speed_limits_mps) == len(result.centerline)
 
     def test_same_lane_route_has_no_changes(self) -> None:
         result = plan_route(lane_change_graph(), LaneletId(1), LaneletId(2))

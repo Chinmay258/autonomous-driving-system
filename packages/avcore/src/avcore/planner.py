@@ -13,7 +13,8 @@ from typing import Protocol
 
 from avcore.errors import UnreachableGoalError
 from avcore.graph import EdgeKind, RoutingGraph
-from avcore.models import Lanelet, LaneletId, Point2D, RouteResult
+from avcore.models import Lanelet, LaneletId, Point2D, RouteResult, polyline_length
+from avcore.routeops import route_eta_s, slice_polyline
 
 _LANE_CHANGE_KINDS = frozenset({EdgeKind.LEFT, EdgeKind.RIGHT})
 
@@ -44,12 +45,21 @@ def _endpoint(lanelet: Lanelet) -> Point2D:
 
 @dataclass(frozen=True, slots=True)
 class Distance:
-    """Optimize total route length in meters. Lane changes cost no extra length."""
+    """Optimize total route length in meters.
+
+    A lateral (lane-change) edge moves to a parallel lane spanning the same
+    stretch of road — the longitudinal distance was already paid by the lane
+    being left, so it costs only a small maneuver penalty.
+    """
+
+    lane_change_penalty_m: float = 1.0
 
     def entry_cost(self, lanelet: Lanelet) -> float:
         return lanelet.length_m
 
     def edge_cost(self, source: Lanelet, target: Lanelet, kind: EdgeKind) -> float:
+        if kind in _LANE_CHANGE_KINDS:
+            return self.lane_change_penalty_m
         return target.length_m
 
     def heuristic(self, node: Lanelet, goal: Lanelet, max_speed_mps: float) -> float:
@@ -60,7 +70,11 @@ class Distance:
 
 @dataclass(frozen=True, slots=True)
 class TravelTime:
-    """Optimize expected travel time in seconds, penalizing lane changes."""
+    """Optimize expected travel time in seconds, penalizing lane changes.
+
+    Lateral edges cost the maneuver penalty only (see Distance): the parallel
+    lane covers the same longitudinal span already paid for.
+    """
 
     lane_change_penalty_s: float = 5.0
 
@@ -68,10 +82,9 @@ class TravelTime:
         return lanelet.length_m / lanelet.speed_limit_mps
 
     def edge_cost(self, source: Lanelet, target: Lanelet, kind: EdgeKind) -> float:
-        traversal = target.length_m / target.speed_limit_mps
         if kind in _LANE_CHANGE_KINDS:
-            traversal += self.lane_change_penalty_s
-        return traversal
+            return self.lane_change_penalty_s
+        return target.length_m / target.speed_limit_mps
 
     def heuristic(self, node: Lanelet, goal: Lanelet, max_speed_mps: float) -> float:
         # Straight-line distance at the map-wide top speed can never
@@ -79,14 +92,8 @@ class TravelTime:
         return _endpoint(node).distance_to(_endpoint(goal)) / max_speed_mps
 
 
-def _stitch_centerline(lanelets: list[Lanelet]) -> tuple[Point2D, ...]:
-    """Concatenate centerlines, dropping consecutive duplicate joint points."""
-    points: list[Point2D] = []
-    for lanelet in lanelets:
-        for point in lanelet.centerline:
-            if not points or points[-1] != point:
-                points.append(point)
-    return tuple(points)
+LANE_CHANGE_MIN_M = 8.0
+LANE_CHANGE_MAX_M = 35.0
 
 
 def _build_result(
@@ -94,16 +101,53 @@ def _build_result(
     ids: list[LaneletId],
     kinds: list[EdgeKind],
 ) -> RouteResult:
+    """Stitch the route geometry.
+
+    Successor hops concatenate centerlines. A lateral hop is a *forward
+    diagonal*: the previous lane's tail is cut back by the lane-change length
+    and the path lands near the end of the neighbouring lane — never
+    re-traversing the parallel span (which is what used to draw zigzags).
+    """
     lanelets = [graph.lanelet(lid) for lid in ids]
-    distance = sum(lanelet.length_m for lanelet in lanelets)
-    eta = sum(lanelet.length_m / lanelet.speed_limit_mps for lanelet in lanelets)
+    pieces: list[list[Point2D]] = [list(lanelets[0].centerline)]
+    piece_speeds: list[float] = [lanelets[0].speed_limit_mps]
+
+    for lanelet, kind in zip(lanelets[1:], kinds, strict=True):
+        if kind is EdgeKind.SUCCESSOR:
+            pieces.append(list(lanelet.centerline))
+            piece_speeds.append(lanelet.speed_limit_mps)
+            continue
+        # Lane change: cut the tail of what we drove on the previous lane...
+        prev = tuple(pieces[-1])
+        prev_len = polyline_length(prev)
+        change_len = min(LANE_CHANGE_MAX_M, max(LANE_CHANGE_MIN_M, 0.25 * prev_len))
+        if change_len >= prev_len:
+            change_len = prev_len / 2.0
+        pieces[-1] = list(slice_polyline(prev, 0.0, prev_len - change_len))
+        # ...and land near the end of the neighbouring lane.
+        neighbour = lanelet.centerline
+        neighbour_len = polyline_length(neighbour)
+        tail_from = max(0.0, neighbour_len - min(2.0, neighbour_len * 0.1))
+        pieces.append(list(slice_polyline(neighbour, tail_from, neighbour_len)))
+        piece_speeds.append(lanelet.speed_limit_mps)
+
+    points: list[Point2D] = []
+    speeds: list[float] = []
+    for piece, speed in zip(pieces, piece_speeds, strict=True):
+        for point in piece:
+            if not points or points[-1] != point:
+                points.append(point)
+                speeds.append(speed)
+
+    centerline = tuple(points)
     lane_changes = sum(1 for kind in kinds if kind in _LANE_CHANGE_KINDS)
     return RouteResult(
         lanelet_ids=tuple(ids),
-        centerline=_stitch_centerline(lanelets),
-        distance_m=distance,
-        eta_s=eta,
+        centerline=centerline,
+        distance_m=polyline_length(centerline),
+        eta_s=route_eta_s(centerline, tuple(speeds)),
         lane_changes=lane_changes,
+        speed_limits_mps=tuple(speeds),
     )
 
 

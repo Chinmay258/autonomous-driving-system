@@ -33,8 +33,10 @@ LANE_WIDTH_M = 3.5
 INTERSECTION_TRIM_M = 8.0
 MIN_SEGMENT_LENGTH_M = 4.0
 TURN_SPEED_MPS = 8.3
+UTURN_SPEED_MPS = 5.5
+UTURN_MAX_GAP_M = 15.0  # U-turns only back onto the same street's other side
 STRAIGHT_MAX_RAD = math.pi / 6  # |delta| below this is a straight continuation
-UTURN_MIN_RAD = 5 * math.pi / 6  # |delta| above this is a U-turn (excluded)
+UTURN_MIN_RAD = 5 * math.pi / 6  # |delta| above this is a U-turn
 
 _DRIVABLE = re.compile(
     r"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)(_link)?$"
@@ -178,6 +180,46 @@ def _dedupe(points: list[Point2D]) -> list[Point2D]:
     return out
 
 
+def _heading(a: Point2D, b: Point2D) -> float:
+    return math.atan2(b.y - a.y, b.x - a.x)
+
+
+def _bezier(a: Point2D, control: Point2D, b: Point2D, samples: int = 7) -> list[Point2D]:
+    pts = []
+    for i in range(samples + 1):
+        t = i / samples
+        omt = 1.0 - t
+        pts.append(
+            Point2D(
+                omt * omt * a.x + 2 * omt * t * control.x + t * t * b.x,
+                omt * omt * a.y + 2 * omt * t * control.y + t * t * b.y,
+            )
+        )
+    return _dedupe(pts)
+
+
+def _turn_control_point(a: Point2D, heading_a: float, b: Point2D, heading_b: float) -> Point2D:
+    """Control point for a turning arc: intersection of the entry/exit rays.
+
+    Falls back to a forward bulge (U-turns, near-parallel rays) or the plain
+    midpoint (straight continuations).
+    """
+    delta = _signed_angle(heading_a, heading_b)
+    if abs(delta) < STRAIGHT_MAX_RAD:
+        return Point2D((a.x + b.x) / 2.0, (a.y + b.y) / 2.0)
+    dax, day = math.cos(heading_a), math.sin(heading_a)
+    dbx, dby = math.cos(heading_b), math.sin(heading_b)
+    det = dax * dby - day * dbx
+    if abs(det) > 1e-6:
+        t = ((b.x - a.x) * dby - (b.y - a.y) * dbx) / det
+        u = (dax * (b.y - a.y) - day * (b.x - a.x)) / det
+        if 0.0 < t <= 60.0 and 0.0 < u <= 60.0:
+            return Point2D(a.x + t * dax, a.y + t * day)
+    # U-turn / degenerate: bulge into the junction along the entry heading.
+    bulge = min(6.0, a.distance_to(b) * 0.5)
+    return Point2D((a.x + b.x) / 2.0 + dax * bulge, (a.y + b.y) / 2.0 + day * bulge)
+
+
 @dataclass
 class _Importer:
     drive_on: str = "right"
@@ -225,17 +267,25 @@ class _Importer:
         return tuple(lanes)
 
     def connector(self, source: Lanelet, target: Lanelet, speed: float) -> None:
-        gap = source.centerline[-1].distance_to(target.centerline[0])
-        if gap < 1.0:
+        """Curved junction connector (quadratic bezier along the turn arc)."""
+        a, b = source.centerline[-1], target.centerline[0]
+        if a.distance_to(b) < 1.0:
             # Ends effectively touch; graph derivation links them directly
             # (ENDPOINT_TOLERANCE_M) and a sliver lanelet would fail validation.
             return
+        heading_a = _heading(source.centerline[-2], source.centerline[-1])
+        heading_b = _heading(target.centerline[0], target.centerline[1])
+        center = _bezier(a, _turn_control_point(a, heading_a, b, heading_b), b)
+        if len(center) < 2:
+            return
+        half = LANE_WIDTH_M / 2.0
         self.lanelets.append(
             Lanelet(
                 id=self._new_id(),
-                left_bound=(source.left_bound[-1], target.left_bound[0]),
-                right_bound=(source.right_bound[-1], target.right_bound[0]),
+                left_bound=_offset_polyline(center, half),
+                right_bound=_offset_polyline(center, -half),
                 speed_limit_mps=speed,
+                is_connector=True,
             )
         )
 
@@ -356,6 +406,12 @@ def _build_connectors(
             for dep in departures:
                 delta = _signed_angle(arr.heading_out(), dep.heading_in())
                 if abs(delta) >= UTURN_MIN_RAD:
+                    # U-turn: leftmost lane onto the opposite carriageway of
+                    # the same street only (gap-gated), at crawl speed.
+                    a = arr.lanes[0].centerline[-1]
+                    b = dep.lanes[0].centerline[0]
+                    if a.distance_to(b) <= UTURN_MAX_GAP_M:
+                        importer.connector(arr.lanes[0], dep.lanes[0], UTURN_SPEED_MPS)
                     continue
                 n_in, n_out = len(arr.lanes), len(dep.lanes)
                 if abs(delta) < STRAIGHT_MAX_RAD:

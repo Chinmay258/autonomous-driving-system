@@ -66,6 +66,8 @@ def write_osm(lanelets: Sequence[Lanelet], origin: LatLng) -> str:
         ET.SubElement(rel, "tag", k="location", v="urban")
         ET.SubElement(rel, "tag", k="one_way", v="yes" if lanelet.one_way else "no")
         ET.SubElement(rel, "tag", k="speed_limit", v=repr(lanelet.speed_limit_mps * _MPS_TO_KMH))
+        if lanelet.is_connector:
+            ET.SubElement(rel, "tag", k="turn_connector", v="yes")
 
     ET.indent(root)
     return ET.tostring(root, encoding="unicode", xml_declaration=True)
@@ -126,6 +128,7 @@ def read_osm(xml_text: str) -> tuple[list[Lanelet], LatLng]:
                 speed_limit_mps=float(tags["speed_limit"]) / _MPS_TO_KMH,
                 one_way=tags.get("one_way", "yes") == "yes",
                 subtype=LaneletSubtype(tags.get("subtype", "road")),
+                is_connector=tags.get("turn_connector") == "yes",
             )
         )
     return lanelets, origin

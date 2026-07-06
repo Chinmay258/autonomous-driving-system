@@ -5,6 +5,7 @@
       "name": "webdemo",
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "uv", "run", "uvicorn", "webdemo_backend.app:create_app", "--factory", "--port", "8017"],
+      "env": { "AV_MAP_PATH": "maps/barcelona_eixample.osm" },
       "port": 8017
     }
   ]

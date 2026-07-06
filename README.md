@@ -1,9 +1,11 @@
 # Autonomous Vehicle Driving System
 
 Lane detection → Lanelet2 map conversion → route filtering → A* route planning →
-validated in the **Autoware Planning Simulator** — plus a **live web demo** where
-you drop two markers on a map of Monaco and watch a simulated vehicle plan the
-route and drive it to arrival.
+validated in the **Autoware Planning Simulator** — plus a **live web demo** on a
+**real city map (Barcelona's Eixample, imported lane-by-lane from OpenStreetMap)**:
+drop two markers and a simulated vehicle plans a lane-level route and drives it,
+with strict lane discipline — right turns only from the rightmost lane, left
+turns only from the leftmost, visible lane changes before every turn.
 
 **Docs:** [SPEC.md](SPEC.md) (scope & feasibility) · [ARCHITECTURE.md](ARCHITECTURE.md)
 (enterprise architecture, contracts, phased plan) · [docs/adr/](docs/adr/) (decisions)
@@ -38,8 +40,15 @@ infra/                    # compose + cloudflared, fly.toml stub (P7)
 ## Run the demo locally
 
 ```bash
-uv run uvicorn webdemo_backend.app:create_app --factory --port 8017
-# open http://localhost:8017 — click two points on the road network, hit Drive
+AV_MAP_PATH=maps/barcelona_eixample.osm uv run uvicorn webdemo_backend.app:create_app --factory --port 8017
+# open http://localhost:8017 — click two points on the map, hit Drive
+# (omit AV_MAP_PATH to fall back to the synthetic test town)
+```
+
+Import a different city (any bbox, right- or left-hand traffic):
+
+```bash
+uv run python -m avmap_tools.import_osm --bbox "41.385,2.158,41.398,2.174" --out maps/mycity
 ```
 
 ## Status

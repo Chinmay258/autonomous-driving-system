@@ -39,9 +39,10 @@
 
 <div id="hud" class="panel">
   <h1>AV Route Planning Demo</h1>
-  <p>Click the road network to set a <b style="color:#3fb950">start</b>, then a
-     <b style="color:#f85149">destination</b>. The planner (A* over a Lanelet2-style
-     graph) finds a route and a simulated vehicle drives it.</p>
+  <p>Click the map to set a <b style="color:#3fb950">start</b>, then a
+     <b style="color:#f85149">destination</b>. A* plans over a lane-level graph
+     imported from OpenStreetMap — every lane is separate, right turns only from
+     the rightmost lane — and the vehicle drives it, lane changes included.</p>
   <select id="cost">
     <option value="travel_time">Optimize travel time</option>
     <option value="distance">Optimize distance</option>
@@ -72,10 +73,19 @@ let startMarker = null, goalMarker = null, carMarker = null;
 
 const map = new maplibregl.Map({
   container: 'map',
-  style: { version: 8, sources: {}, layers: [
-    { id: 'bg', type: 'background', paint: { 'background-color': '#0e1116' } }
-  ]},
-  center: [7.4258, 43.7395], zoom: 15.5, attributionControl: false,
+  style: { version: 8,
+    sources: {
+      osm: { type: 'raster', tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+             tileSize: 256, maxzoom: 19,
+             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors' }
+    },
+    layers: [
+      { id: 'bg', type: 'background', paint: { 'background-color': '#0e1116' } },
+      { id: 'basemap', type: 'raster', source: 'osm',
+        paint: { 'raster-saturation': -1, 'raster-contrast': 0.1,
+                 'raster-brightness-min': 0, 'raster-brightness-max': 0.38 } }
+    ]},
+  center: [2.1654, 41.3915], zoom: 15, attributionControl: { compact: true },
 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
@@ -83,14 +93,14 @@ map.on('load', async () => {
   const roads = await (await fetch('/map/roads')).json();
   map.addSource('roads', { type: 'geojson', data: roads });
   map.addLayer({ id: 'roads-casing', type: 'line', source: 'roads',
-    paint: { 'line-color': '#1c2128', 'line-width': 9 },
+    paint: { 'line-color': '#11151b', 'line-width': 4.5, 'line-opacity': 0.9 },
     layout: { 'line-cap': 'round', 'line-join': 'round' } });
   map.addLayer({ id: 'roads', type: 'line', source: 'roads',
-    paint: { 'line-color': '#30363d', 'line-width': 6 },
+    paint: { 'line-color': '#3d444d', 'line-width': 2.2 },
     layout: { 'line-cap': 'round', 'line-join': 'round' } });
   map.addSource('route', { type: 'geojson', data: emptyFC() });
   map.addLayer({ id: 'route', type: 'line', source: 'route',
-    paint: { 'line-color': '#58a6ff', 'line-width': 4, 'line-opacity': 0.9 },
+    paint: { 'line-color': '#58a6ff', 'line-width': 3.5, 'line-opacity': 0.95 },
     layout: { 'line-cap': 'round', 'line-join': 'round' } });
   map.addSource('trail', { type: 'geojson', data: emptyFC() });
   map.addLayer({ id: 'trail', type: 'line', source: 'trail',

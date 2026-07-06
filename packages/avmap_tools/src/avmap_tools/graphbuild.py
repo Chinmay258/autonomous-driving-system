@@ -13,7 +13,9 @@ from collections.abc import Sequence
 
 from avcore import EdgeKind, Lanelet, Point2D, RoutingGraph
 
-ENDPOINT_TOLERANCE_M = 0.5
+# Generous enough to bridge junction gaps left by skipped sliver connectors,
+# but far below the 3.5 m lane pitch, so no false cross-lane successors.
+ENDPOINT_TOLERANCE_M = 1.0
 
 
 def _close(a: Point2D, b: Point2D, tol: float) -> bool:

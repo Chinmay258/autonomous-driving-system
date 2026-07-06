@@ -1,0 +1,10 @@
+﻿trading_dashboard
+trading_execution
+trading_risk
+trading_decision
+trading_technical_analysis
+trading_market_data
+trading_monitoring
+trading_api
+trading_postgres
+trading_redis

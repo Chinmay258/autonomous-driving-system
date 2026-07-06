@@ -87,16 +87,28 @@ on the Barcelona map. Two hard-won requirements, baked into the script:
   standstill in this containerized setup (the flag is read once at node boot,
   so a runtime `ros2 param set` does not help).
 
-### Known issue: stall on the tightest turn connectors (map-side, open)
-Driving works from spawn and on straights, but on the sharpest junction
-fillets Autoware's behavior_path_planner outputs a degenerate path: the final
-trajectory ends ~0.2 m ahead of ego with v=0, so the controller (correctly)
-refuses to depart. Root cause: our turn connectors allow arc radii down to
-~2 m over a few meters of length, below what the module's resampling
-tolerates. Fix queued: enforce a minimum fillet radius (~5 m) and minimum
-connector arc length in avmap_tools.osm_import, regenerate the artifact,
-re-run the golden eval. Workaround meanwhile: rerun `run_viz.ps1` (fresh boot
-re-places the car) and pick goals along boulevards.
+### Fixed: tight turn connectors (map-side)
+Turn connectors are now tangent circular corner fillets (target radius 5 m,
+floor 2.5 m, straight lead-in/out) with a 12 m junction setback; a regression
+test bounds every connector's max curvature. Artifact regenerated.
+
+### Open issue: behavior_path_planner truncates the reference path
+Evidence chain (2026-07-06/07 sessions): planner/route/localization healthy,
+controller healthy, but `behavior_planning/path_with_lane_id` carries only
+~10 m of path (7 points; healthy stacks emit 100+ m), shrinking over time at
+standstill — the final trajectory then ends at ego with v=0 and the vehicle
+(correctly) holds. Happens on straights too, so it is not the turn geometry.
+Suspect: route_handler/drivable-area interaction with generated-map specifics
+(2-point long bounds? goal fixation?). The car HAS driven (15 m verified,
+plus a ~1 km run witnessed in rviz), so the pipeline is close.
+
+### Headless initialization (required knowledge)
+`/initialpose3d` alone teleports the sim but leaves the ADAPI localization
+state UNINITIALIZED, and the component_state_monitor then vetoes autonomous
+mode. Always initialize via the official service:
+`/api/localization/initialize` (autoware_adapi_v1_msgs/srv/InitializeLocalization)
+with the desired PoseWithCovarianceStamped — or simply use rviz's
+`2D Pose Estimate`, which drives the same chain.
 
 ### Operational quirks (WSL2 + docker exec)
 - Probe **immediately** after `waiting odometry` appears; the stack's

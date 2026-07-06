@@ -30,7 +30,12 @@ from avcore import Lanelet, LaneletId, LatLng, Point2D
 from avmap_tools.projection import LocalProjector
 
 LANE_WIDTH_M = 3.5
-INTERSECTION_TRIM_M = 8.0
+# Deep enough setback that turn fillets get a driveable radius even on the
+# acute crossings (Autoware's behavior planner emits degenerate paths on
+# arcs much tighter than ~4-5 m).
+INTERSECTION_TRIM_M = 12.0
+TURN_FILLET_RADIUS_M = 5.0
+TURN_FILLET_MIN_RADIUS_M = 2.5
 MIN_SEGMENT_LENGTH_M = 4.0
 TURN_SPEED_MPS = 8.3
 UTURN_SPEED_MPS = 5.5
@@ -227,6 +232,63 @@ def _uturn_arc(a: Point2D, heading_a: float, b: Point2D, samples: int = 14) -> l
     return _dedupe([a, *pts[1:-1], b])
 
 
+def _corner_fillet(
+    a: Point2D,
+    heading_a: float,
+    b: Point2D,
+    heading_b: float,
+    *,
+    target_radius: float = TURN_FILLET_RADIUS_M,
+    min_radius: float = TURN_FILLET_MIN_RADIUS_M,
+    samples: int = 12,
+) -> list[Point2D] | None:
+    """Road-engineering corner: circular arc tangent to entry AND exit rays.
+
+    straight(a->ta) + arc(ta->tb, radius r) + straight(tb->b), with r shrunk
+    to fit the available leg lengths (never below ``min_radius``). Returns
+    None when the ray geometry doesn't admit a tangent corner.
+    """
+    delta = _signed_angle(heading_a, heading_b)
+    interior = math.pi - abs(delta)
+    if interior < 0.15:  # ~U-turn; handled by _uturn_arc
+        return None
+    dax, day = math.cos(heading_a), math.sin(heading_a)
+    dbx, dby = math.cos(heading_b), math.sin(heading_b)
+    det = dax * dby - day * dbx
+    if abs(det) < 1e-9:
+        return None
+    t = ((b.x - a.x) * dby - (b.y - a.y) * dbx) / det
+    u = (dax * (b.y - a.y) - day * (b.x - a.x)) / det
+    if t <= 0.5 or u <= 0.5:
+        return None
+    tan_half = math.tan(interior / 2.0)
+    radius = min(target_radius, 0.9 * t * tan_half, 0.9 * u * tan_half)
+    if radius < min_radius:
+        return None
+    leg = radius / tan_half
+    corner = Point2D(a.x + t * dax, a.y + t * day)
+    tangent_in = Point2D(corner.x - dax * leg, corner.y - day * leg)
+    tangent_out = Point2D(corner.x + dbx * leg, corner.y + dby * leg)
+    side = 1.0 if delta > 0 else -1.0
+    center_x = tangent_in.x - day * side * radius
+    center_y = tangent_in.y + dax * side * radius
+    ang_in = math.atan2(tangent_in.y - center_y, tangent_in.x - center_x)
+    ang_out = math.atan2(tangent_out.y - center_y, tangent_out.x - center_x)
+    sweep = _signed_angle(ang_in, ang_out)
+    if side > 0 and sweep < 0:
+        sweep += 2 * math.pi
+    if side < 0 and sweep > 0:
+        sweep -= 2 * math.pi
+    arc = [
+        Point2D(
+            center_x + radius * math.cos(ang_in + sweep * i / samples),
+            center_y + radius * math.sin(ang_in + sweep * i / samples),
+        )
+        for i in range(samples + 1)
+    ]
+    return _dedupe([a, *arc, b])
+
+
 def _cubic_fillet(
     a: Point2D,
     heading_a: float,
@@ -346,13 +408,20 @@ class _Importer:
         elif gap < 3.0 and turn < STRAIGHT_MAX_RAD:
             left, right, folded = build([a, b])
         else:
-            # Widen the arc until neither offset bound folds (inner offsets
-            # fold when the arc radius dips below the half lane width).
-            for attempt in range(4):
-                center = _cubic_fillet(a, heading_a, b, heading_b, reach_mult=1.5**attempt)
-                left, right, folded = build(center)
-                if not folded:
-                    break
+            # Prefer the tangent circular corner (guaranteed radius floor);
+            # fall back to cubic easing, widened until no offset bound folds.
+            folded = True
+            corner = (
+                _corner_fillet(a, heading_a, b, heading_b) if turn >= STRAIGHT_MAX_RAD else None
+            )
+            if corner is not None:
+                left, right, folded = build(corner)
+            if folded:
+                for attempt in range(4):
+                    center = _cubic_fillet(a, heading_a, b, heading_b, reach_mult=1.5**attempt)
+                    left, right, folded = build(center)
+                    if not folded:
+                        break
             if folded:
                 left, right, folded = build([a, b])  # straight degrade for turns
         if folded:

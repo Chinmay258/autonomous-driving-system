@@ -73,6 +73,19 @@ def write_osm(lanelets: Sequence[Lanelet], origin: LatLng) -> str:
         ET.SubElement(rel, "tag", k="speed_limit", v=repr(lanelet.speed_limit_mps * _MPS_TO_KMH))
         if lanelet.is_connector:
             ET.SubElement(rel, "tag", k="turn_connector", v="yes")
+            # Autoware expects intersection lanelets to carry turn_direction;
+            # infer it from the connector's entry/exit headings.
+            center = lanelet.centerline
+            entry = math.atan2(center[1].y - center[0].y, center[1].x - center[0].x)
+            exit_h = math.atan2(center[-1].y - center[-2].y, center[-1].x - center[-2].x)
+            delta = math.atan2(math.sin(exit_h - entry), math.cos(exit_h - entry))
+            if abs(delta) < math.pi / 6:
+                direction = "straight"
+            elif delta > 0:
+                direction = "left"
+            else:
+                direction = "right"
+            ET.SubElement(rel, "tag", k="turn_direction", v=direction)
 
     # A way serving as the left bound of one lane and the right bound of
     # another is an internal divider between same-direction lanes: mark it

@@ -34,6 +34,7 @@ LANE_WIDTH_M = 3.5
 # acute crossings (Autoware's behavior planner emits degenerate paths on
 # arcs much tighter than ~4-5 m).
 INTERSECTION_TRIM_M = 12.0
+JUNCTION_CLUSTER_RADIUS_M = 25.0
 TURN_FILLET_RADIUS_M = 5.0
 TURN_FILLET_MIN_RADIUS_M = 2.5
 MIN_SEGMENT_LENGTH_M = 4.0
@@ -503,6 +504,23 @@ def import_osm_roads(
             node_way_count[nid] = node_way_count.get(nid, 0) + 1
     junctions = {nid for nid, count in node_way_count.items() if count >= 2}
 
+    # Chamfered intersections (e.g. Barcelona) split streets into micro
+    # segments between crossing nodes; cluster nearby junction nodes into one
+    # logical intersection so approaches keep full-block length (lane changes
+    # need runway) and connectors span the whole junction.
+    cluster_of: dict[int, int] = {}
+    representatives: list[int] = []
+    for nid in sorted(junctions):
+        home = None
+        for rep in representatives:
+            if points[rep].distance_to(points[nid]) <= JUNCTION_CLUSTER_RADIUS_M:
+                home = rep
+                break
+        if home is None:
+            representatives.append(nid)
+            home = nid
+        cluster_of[nid] = home
+
     importer = _Importer(drive_on=drive_on)
     incoming: dict[int, list[_DirectedLanes]] = {}
     outgoing: dict[int, list[_DirectedLanes]] = {}
@@ -520,6 +538,10 @@ def import_osm_roads(
 
         for a, b in itertools.pairwise(cut_indices):
             seg_nodes = way.nodes[a : b + 1]
+            c_start = cluster_of.get(seg_nodes[0])
+            c_end = cluster_of.get(seg_nodes[-1])
+            if c_start is not None and c_start == c_end:
+                continue  # junction-internal sliver; connectors span the cluster
             geometry = _dedupe([points[n] for n in seg_nodes])
             if len(geometry) < 2:
                 continue
@@ -552,8 +574,8 @@ def import_osm_roads(
                 directed = _DirectedLanes(
                     lanes=lanes, start_node=start_node, end_node=end_node, speed_mps=speed
                 )
-                outgoing.setdefault(start_node, []).append(directed)
-                incoming.setdefault(end_node, []).append(directed)
+                outgoing.setdefault(cluster_of.get(start_node, start_node), []).append(directed)
+                incoming.setdefault(cluster_of.get(end_node, end_node), []).append(directed)
 
     _build_connectors(importer, incoming, outgoing)
     return importer.lanelets, origin

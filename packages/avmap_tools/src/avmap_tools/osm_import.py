@@ -185,6 +185,26 @@ def _dedupe(points: list[Point2D]) -> list[Point2D]:
     return out
 
 
+DENSIFY_STEP_M = 10.0
+
+
+def _densify(points: list[Point2D], max_step: float = DENSIFY_STEP_M) -> list[Point2D]:
+    """Insert intermediate vertices so no segment exceeds ``max_step``.
+
+    Real Lanelet2 maps carry dense geometry; Autoware's behavior planner
+    resamples from map vertices and degenerates on our raw 2-point,
+    hundreds-of-meters straight bounds (reference path collapsed to ~10 m).
+    """
+    out = [points[0]]
+    for a, b in itertools.pairwise(points):
+        span = a.distance_to(b)
+        steps = max(1, math.ceil(span / max_step))
+        for i in range(1, steps + 1):
+            t = i / steps
+            out.append(Point2D(a.x + t * (b.x - a.x), a.y + t * (b.y - a.y)))
+    return out
+
+
 def _heading(a: Point2D, b: Point2D) -> float:
     return math.atan2(b.y - a.y, b.x - a.x)
 
@@ -353,6 +373,7 @@ class _Importer:
         geometry = _dedupe(geometry)
         if len(geometry) < 2:
             return None
+        geometry = _densify(geometry)
         side = -1.0 if self.drive_on == "right" else 1.0
         # Boundary j (j = 0..n) offset in lane widths from the way centerline;
         # boundary 0 is the leftmost marking in driving direction.

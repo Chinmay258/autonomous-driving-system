@@ -87,6 +87,17 @@ on the Barcelona map. Two hard-won requirements, baked into the script:
   standstill in this containerized setup (the flag is read once at node boot,
   so a runtime `ros2 param set` does not help).
 
+### Known issue: stall on the tightest turn connectors (map-side, open)
+Driving works from spawn and on straights, but on the sharpest junction
+fillets Autoware's behavior_path_planner outputs a degenerate path: the final
+trajectory ends ~0.2 m ahead of ego with v=0, so the controller (correctly)
+refuses to depart. Root cause: our turn connectors allow arc radii down to
+~2 m over a few meters of length, below what the module's resampling
+tolerates. Fix queued: enforce a minimum fillet radius (~5 m) and minimum
+connector arc length in avmap_tools.osm_import, regenerate the artifact,
+re-run the golden eval. Workaround meanwhile: rerun `run_viz.ps1` (fresh boot
+re-places the car) and pick goals along boulevards.
+
 ### Operational quirks (WSL2 + docker exec)
 - Probe **immediately** after `waiting odometry` appears; the stack's
   `/initialpose` subscription can stop matching new DDS participants some

@@ -92,15 +92,21 @@ Turn connectors are now tangent circular corner fillets (target radius 5 m,
 floor 2.5 m, straight lead-in/out) with a 12 m junction setback; a regression
 test bounds every connector's max curvature. Artifact regenerated.
 
-### Open issue: behavior_path_planner truncates the reference path
-Evidence chain (2026-07-06/07 sessions): planner/route/localization healthy,
-controller healthy, but `behavior_planning/path_with_lane_id` carries only
-~10 m of path (7 points; healthy stacks emit 100+ m), shrinking over time at
-standstill — the final trajectory then ends at ego with v=0 and the vehicle
-(correctly) holds. Happens on straights too, so it is not the turn geometry.
-Suspect: route_handler/drivable-area interaction with generated-map specifics
-(2-point long bounds? goal fixation?). The car HAS driven (15 m verified,
-plus a ~1 km run witnessed in rviz), so the pipeline is close.
+### Open issue: route_handler stops chaining at the current lanelet
+Sharpened diagnosis (2026-07-07): `behavior_planning/path_with_lane_id`
+carries **only the ego's current lanelet** (`lane_ids=[580]`, ~12 m) — the
+lane sequence never extends into the next route lanelet, so the trajectory
+ends at the lanelet boundary with v=0 and the vehicle holds. Everything
+upstream/downstream is proven healthy: the mission planner routes the full
+map, lanelet2 `following()` chains every hop of our routes, localization and
+diagnostics are green, control follows fine. After the corner-fillet fix the
+car drives from spawn THROUGH the first turn connector (~25 m) before
+stalling at the chaining boundary — so geometry is no longer the blocker.
+Street geometry was also densified to <=10 m vertex spacing (good hygiene;
+did not resolve this). Next: debug
+`route_handler::getLaneletSequence`/`getNextLaneletWithinRoute` against our
+LaneletRoute segments (behavior_path_planner DEBUG logging on a FRESH
+container — exec introspection wedges on aged ones).
 
 ### Headless initialization (required knowledge)
 `/initialpose3d` alone teleports the sim but leaves the ADAPI localization

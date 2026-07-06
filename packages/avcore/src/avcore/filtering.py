@@ -19,10 +19,13 @@ MIN_LANELET_LENGTH_M = 1.0
 
 
 def _is_sane(lanelet: Lanelet) -> bool:
+    # Junction micro-connectors may be arbitrarily short (they exist to give
+    # lanelet2 exact shared nodes); street lanes must meet the full minimum.
+    min_length = 0.02 if lanelet.is_connector else MIN_LANELET_LENGTH_M
     return (
         lanelet.subtype is LaneletSubtype.ROAD
         and MIN_LANE_WIDTH_M <= lanelet.mean_width_m <= MAX_LANE_WIDTH_M
-        and lanelet.length_m >= MIN_LANELET_LENGTH_M
+        and lanelet.length_m >= min_length
     )
 
 

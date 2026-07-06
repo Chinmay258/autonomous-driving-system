@@ -52,6 +52,13 @@ class TestOsmRoundtrip:
         # Lanelet 1's left bound == lanelet 2's right bound -> written once.
         assert xml_text.count('k="type" v="line_thin"') == 3  # not 4
 
+    def test_shared_divider_is_dashed_for_lane_changes(self) -> None:
+        # lanelet2 traffic rules only allow lane changes across dashed lines;
+        # the internal divider must be dashed, outer bounds stay solid.
+        xml_text = write_osm(sample_lanelets(), ORIGIN)
+        assert xml_text.count('v="dashed"') == 1
+        assert xml_text.count('v="solid"') == 2
+
     def test_output_is_deterministic(self) -> None:
         assert write_osm(sample_lanelets(), ORIGIN) == write_osm(sample_lanelets(), ORIGIN)
 

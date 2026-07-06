@@ -42,6 +42,9 @@ def write_osm(lanelets: Sequence[Lanelet], origin: LatLng) -> str:
             next_node += 1
         return node_ids[point]
 
+    subtype_tags: dict[int, ET.Element] = {}
+    way_roles: dict[int, set[str]] = {}
+
     def way_id(bound: tuple[Point2D, ...]) -> int:
         nonlocal next_way
         if bound not in way_ids:
@@ -51,13 +54,15 @@ def write_osm(lanelets: Sequence[Lanelet], origin: LatLng) -> str:
             for ref in refs:
                 ET.SubElement(el, "nd", ref=str(ref))
             ET.SubElement(el, "tag", k="type", v="line_thin")
-            ET.SubElement(el, "tag", k="subtype", v="solid")
+            subtype_tags[next_way] = ET.SubElement(el, "tag", k="subtype", v="solid")
             next_way += 1
         return way_ids[bound]
 
     for lanelet in lanelets:
         left = way_id(lanelet.left_bound)
         right = way_id(lanelet.right_bound)
+        way_roles.setdefault(left, set()).add("left")
+        way_roles.setdefault(right, set()).add("right")
         rel = ET.SubElement(root, "relation", id=str(int(lanelet.id)))
         ET.SubElement(rel, "member", type="way", role="left", ref=str(left))
         ET.SubElement(rel, "member", type="way", role="right", ref=str(right))
@@ -68,6 +73,13 @@ def write_osm(lanelets: Sequence[Lanelet], origin: LatLng) -> str:
         ET.SubElement(rel, "tag", k="speed_limit", v=repr(lanelet.speed_limit_mps * _MPS_TO_KMH))
         if lanelet.is_connector:
             ET.SubElement(rel, "tag", k="turn_connector", v="yes")
+
+    # A way serving as the left bound of one lane and the right bound of
+    # another is an internal divider between same-direction lanes: mark it
+    # dashed so lanelet2 traffic rules permit lane changes across it.
+    for wid, roles in way_roles.items():
+        if roles == {"left", "right"}:
+            subtype_tags[wid].set("v", "dashed")
 
     ET.indent(root)
     return ET.tostring(root, encoding="unicode", xml_declaration=True)

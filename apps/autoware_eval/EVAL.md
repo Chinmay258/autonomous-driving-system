@@ -49,5 +49,36 @@ connector individually, so the comparator reports:
   sections in order (lane-choice-tolerant; 1.0 = same road-level route),
 - `same_endpoints` — both planners agree on start/goal sections (gate).
 
-## Results
-(recorded after each run)
+## Results — 2026-07-06, image `latest-runtime` (8.81 GB), map `barcelona_eixample` (3,055 lanelets)
+
+The artifact loaded natively: `Succeeded to load lanelet2_map. Map is published.`
+Peak container memory ~2.9 GB of the 4 GB cap; trading stack unaffected.
+
+| Scenario | Start→Goal | Ours | Autoware | Verdict |
+|---|---|---|---|---|
+| short_hop | 1 → 511 | 21 steps | 21 sections | **strict match — identical lanelet sequence, lane-for-lane** |
+| cross_map | 1 → 1855 | 64 steps | 60 sections | same road-level route (section coverage **1.0**), minor lane-preference diffs |
+| mid_range | 1 → 1187 | 54 steps | 49 sections | same endpoints; **routes diverge after step 9** — different street choice |
+
+Interpretation: two of three scenarios agree at road level (one perfectly).
+The mid_range divergence is a cost-model difference, not a defect: our
+TravelTime model (speed-limit-weighted + 5 s lane-change penalty) prefers a
+faster corridor; Autoware's default mission planner optimizes route length.
+Both routes are valid and drivable on the same map.
+
+### Map-compatibility fixes this evaluation forced (now regression-tested)
+- Connector bounds must **reuse the street lanes' exact bound nodes** —
+  lanelet2 succession works on shared points, not proximity.
+- Same-direction lane dividers must be `subtype=dashed` or lanelet2 traffic
+  rules forbid lane changes entirely.
+- Offset bounds must never fold (arc radius < half lane width) or lanelet2
+  inverts them into bowties: near-straight fillets keep controls inside the
+  chord, U-turns are teardrop arcs (radius >= 3 m), fold detection gates every
+  connector.
+
+### Operational quirks (WSL2 + docker exec)
+- Probe **immediately** after `waiting odometry` appears; the stack's
+  `/initialpose` subscription can stop matching new DDS participants some
+  minutes after boot (recreate the container rather than restart it).
+- The route topic is transient-local: a probe must reject latched routes whose
+  final segment doesn't contain its goal id.

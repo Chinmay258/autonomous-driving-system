@@ -175,6 +175,41 @@ class TestLaneDiscipline:
         assert LaneletId(6) not in connector_targets
 
 
+class TestConnectorCurvature:
+    def _acute_fixture(self) -> str:
+        """Two ways crossing at 45 degrees — the Autoware-stalling case."""
+        return f"""<?xml version="1.0"?>
+<osm version="0.6">
+  {_node(1, -200.0, 0.0)}
+  {_node(2, 0.0, 0.0)}
+  {_node(3, 200.0, 0.0)}
+  {_node(4, -141.4, -141.4)}
+  {_node(5, 141.4, 141.4)}
+  <way id="100">
+    <nd ref="1" /><nd ref="2" /><nd ref="3" />
+    <tag k="highway" v="primary" /><tag k="lanes" v="2" />
+  </way>
+  <way id="200">
+    <nd ref="4" /><nd ref="2" /><nd ref="5" />
+    <tag k="highway" v="secondary" /><tag k="lanes" v="2" />
+  </way>
+</osm>"""
+
+    @pytest.mark.parametrize("fixture", ["cross", "acute"])
+    def test_turn_radii_are_driveable(self, fixture: str) -> None:
+        from avcore.filtering import max_curvature
+
+        xml = cross_fixture() if fixture == "cross" else self._acute_fixture()
+        lanelets, _ = import_osm_roads(xml, origin=ORIGIN)
+        for ll in lanelets:
+            if not ll.is_connector or len(ll.centerline) < 3:
+                continue
+            # Turn arcs must keep radius >= ~4 m; teardrop U-turns >= ~2.4 m.
+            assert max_curvature(ll.centerline) <= (1 / 2.4) + 1e-6, (
+                f"connector {ll.id} tighter than a driveable radius"
+            )
+
+
 class TestDriveOnLeft:
     def test_left_hand_traffic_mirrors_lanes(self) -> None:
         lanelets, _ = import_osm_roads(cross_fixture(), origin=ORIGIN, drive_on="left")

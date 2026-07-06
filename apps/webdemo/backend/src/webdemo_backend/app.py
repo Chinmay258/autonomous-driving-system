@@ -36,7 +36,11 @@ _SIM_TO_DRIVE = {
 
 def create_app() -> FastAPI:
     app = FastAPI(title="AV Route Planning Demo", version="0.1.0")
-    service = MapService.from_synthetic_town(blocks=int(os.environ.get("AV_TOWN_BLOCKS", "3")))
+    map_path = os.environ.get("AV_MAP_PATH", "")
+    if map_path:
+        service = MapService.from_osm_artifact(map_path)
+    else:
+        service = MapService.from_synthetic_town(blocks=int(os.environ.get("AV_TOWN_BLOCKS", "3")))
     realtime = os.environ.get("AV_SIM_REALTIME", "1") == "1"
     app.state.mapservice = service
 

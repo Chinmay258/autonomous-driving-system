@@ -1,0 +1,370 @@
+"""Real-city import: raw OpenStreetMap highways -> per-lane lanelets.
+
+Every OSM way of a drivable class is split at intersection nodes, each split
+segment is expanded into one lanelet per marked lane (using `lanes`,
+`lanes:forward/backward`, `oneway`, `maxspeed` tags with per-class defaults),
+and intersections get connector lanelets with **strict lane discipline**:
+
+- straight movements preserve lane index (lane k -> lane k),
+- right turns are allowed only from the rightmost lane into the rightmost lane,
+- left turns only from the leftmost lane into the leftmost lane,
+- U-turns are never generated.
+
+Adjacent same-direction lanes share their divider polyline object, so
+``build_graph`` derives LEFT/RIGHT lane-change edges automatically; opposite
+directions never share a divider and therefore never get lane-change edges.
+
+Turn-restriction relations are not yet honored (tracked for a later phase).
+Pure stdlib; no osmnx/networkx.
+"""
+
+from __future__ import annotations
+
+import itertools
+import math
+import re
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+
+from avcore import Lanelet, LaneletId, LatLng, Point2D
+from avmap_tools.projection import LocalProjector
+
+LANE_WIDTH_M = 3.5
+INTERSECTION_TRIM_M = 8.0
+MIN_SEGMENT_LENGTH_M = 4.0
+TURN_SPEED_MPS = 8.3
+STRAIGHT_MAX_RAD = math.pi / 6  # |delta| below this is a straight continuation
+UTURN_MIN_RAD = 5 * math.pi / 6  # |delta| above this is a U-turn (excluded)
+
+_DRIVABLE = re.compile(
+    r"^(motorway|trunk|primary|secondary|tertiary|residential|unclassified)(_link)?$"
+)
+_CLASS_SPEED_MPS = {
+    "motorway": 27.8,
+    "motorway_link": 13.9,
+    "trunk": 22.2,
+    "trunk_link": 13.9,
+    "primary": 16.7,
+    "primary_link": 11.1,
+    "secondary": 13.9,
+    "secondary_link": 11.1,
+    "tertiary": 11.1,
+    "tertiary_link": 11.1,
+    "residential": 8.3,
+    "unclassified": 8.3,
+}
+_CLASS_LANES_TOTAL = {"motorway": 3, "trunk": 2, "primary": 2, "secondary": 2}
+
+
+@dataclass(frozen=True, slots=True)
+class _Way:
+    id: int
+    nodes: tuple[int, ...]
+    tags: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectedLanes:
+    """One driving direction of one street segment, expanded into lanes."""
+
+    lanes: tuple[Lanelet, ...]  # index 0 = leftmost in driving direction
+    start_node: int
+    end_node: int
+    speed_mps: float
+
+    def heading_out(self) -> float:
+        a, b = self.lanes[0].centerline[-2], self.lanes[0].centerline[-1]
+        return math.atan2(b.y - a.y, b.x - a.x)
+
+    def heading_in(self) -> float:
+        a, b = self.lanes[0].centerline[0], self.lanes[0].centerline[1]
+        return math.atan2(b.y - a.y, b.x - a.x)
+
+
+def parse_maxspeed(value: str | None, highway_class: str) -> float:
+    """maxspeed tag ('50', '50 km/h', '30 mph') -> m/s, with class fallback."""
+    fallback = _CLASS_SPEED_MPS.get(highway_class, 8.3)
+    if not value:
+        return fallback
+    match = re.match(r"^\s*(\d+(?:\.\d+)?)\s*(mph)?", value)
+    if not match:
+        return fallback
+    speed = float(match.group(1))
+    return speed * 0.44704 if match.group(2) else speed / 3.6
+
+
+def lane_counts(tags: dict[str, str]) -> tuple[int, int]:
+    """(forward, backward) lane counts from OSM tags + class defaults."""
+    highway = tags.get("highway", "")
+    base = highway.removesuffix("_link")
+    oneway = tags.get("oneway", "no") in {"yes", "1", "true"}
+    default_total = _CLASS_LANES_TOTAL.get(base, 1) * (1 if oneway else 2)
+    try:
+        total = max(1, int(tags["lanes"]))
+    except (KeyError, ValueError):
+        total = default_total
+    if oneway:
+        return total, 0
+    try:
+        fwd = max(1, int(tags["lanes:forward"]))
+    except (KeyError, ValueError):
+        fwd = max(1, total - total // 2)
+    try:
+        bwd = max(1, int(tags["lanes:backward"]))
+    except (KeyError, ValueError):
+        bwd = max(1, total - fwd)
+    return fwd, bwd
+
+
+def _offset_polyline(points: list[Point2D], d: float) -> tuple[Point2D, ...]:
+    """Parallel offset by d along the left-hand normal (miter joints, capped)."""
+    seg_normals: list[tuple[float, float]] = []
+    for a, b in itertools.pairwise(points):
+        dx, dy = b.x - a.x, b.y - a.y
+        length = math.hypot(dx, dy)
+        seg_normals.append((-dy / length, dx / length))
+    out: list[Point2D] = []
+    for i, p in enumerate(points):
+        if i == 0:
+            nx, ny = seg_normals[0]
+            scale = 1.0
+        elif i == len(points) - 1:
+            nx, ny = seg_normals[-1]
+            scale = 1.0
+        else:
+            ax, ay = seg_normals[i - 1]
+            bx, by = seg_normals[i]
+            sx, sy = ax + bx, ay + by
+            norm = math.hypot(sx, sy)
+            if norm < 1e-9:  # 180-degree spike; fall back to segment normal
+                nx, ny = bx, by
+                scale = 1.0
+            else:
+                nx, ny = sx / norm, sy / norm
+                scale = 1.0 / max(0.5, nx * bx + ny * by)  # miter, capped at 2x
+        out.append(Point2D(p.x + nx * d * scale, p.y + ny * d * scale))
+    return tuple(out)
+
+
+def _polyline_trim(points: list[Point2D], trim_start: float, trim_end: float) -> list[Point2D]:
+    """Cut arclength off both ends (assumes total length > trims + epsilon)."""
+
+    def cut_front(pts: list[Point2D], amount: float) -> list[Point2D]:
+        if amount <= 0:
+            return pts
+        remaining = amount
+        for i in range(len(pts) - 1):
+            seg = pts[i].distance_to(pts[i + 1])
+            if remaining < seg:
+                t = remaining / seg
+                first = Point2D(
+                    pts[i].x + t * (pts[i + 1].x - pts[i].x),
+                    pts[i].y + t * (pts[i + 1].y - pts[i].y),
+                )
+                return [first, *pts[i + 1 :]]
+            remaining -= seg
+        return pts[-2:]
+
+    trimmed = cut_front(points, trim_start)
+    trimmed = list(reversed(cut_front(list(reversed(trimmed)), trim_end)))
+    return trimmed
+
+
+def _dedupe(points: list[Point2D]) -> list[Point2D]:
+    out: list[Point2D] = []
+    for p in points:
+        if not out or out[-1].distance_to(p) > 1e-6:
+            out.append(p)
+    return out
+
+
+@dataclass
+class _Importer:
+    drive_on: str = "right"
+    next_id: int = 1
+    lanelets: list[Lanelet] = field(default_factory=list)
+
+    def _new_id(self) -> LaneletId:
+        lid = LaneletId(self.next_id)
+        self.next_id += 1
+        return lid
+
+    def expand_segment(
+        self, geometry: list[Point2D], n_lanes: int, speed: float, *, centered: bool
+    ) -> tuple[Lanelet, ...] | None:
+        """One driving direction -> n lanelets. Geometry runs in driving direction.
+
+        centered=True (oneway street): carriageway straddles the way centerline.
+        centered=False (two-way): lanes occupy the right half (or left half when
+        drive_on='left').
+        """
+        geometry = _dedupe(geometry)
+        if len(geometry) < 2:
+            return None
+        side = -1.0 if self.drive_on == "right" else 1.0
+        # Boundary j (j = 0..n) offset in lane widths from the way centerline;
+        # boundary 0 is the leftmost marking in driving direction.
+        if centered:
+            offsets = [(n_lanes / 2.0 - j) * LANE_WIDTH_M * -side for j in range(n_lanes + 1)]
+        else:
+            offsets = [side * j * LANE_WIDTH_M for j in range(n_lanes + 1)]
+        boundaries = [_offset_polyline(geometry, d) for d in offsets]
+        lanes: list[Lanelet] = []
+        for k in range(n_lanes):
+            left, right = boundaries[k], boundaries[k + 1]
+            if self.drive_on == "left" and not centered:
+                left, right = boundaries[k + 1], boundaries[k]
+            lanes.append(
+                Lanelet(
+                    id=self._new_id(),
+                    left_bound=left,
+                    right_bound=right,
+                    speed_limit_mps=speed,
+                )
+            )
+        return tuple(lanes)
+
+    def connector(self, source: Lanelet, target: Lanelet, speed: float) -> None:
+        gap = source.centerline[-1].distance_to(target.centerline[0])
+        if gap < 1.0:
+            # Ends effectively touch; graph derivation links them directly
+            # (ENDPOINT_TOLERANCE_M) and a sliver lanelet would fail validation.
+            return
+        self.lanelets.append(
+            Lanelet(
+                id=self._new_id(),
+                left_bound=(source.left_bound[-1], target.left_bound[0]),
+                right_bound=(source.right_bound[-1], target.right_bound[0]),
+                speed_limit_mps=speed,
+            )
+        )
+
+
+def import_osm_roads(
+    xml_text: str, *, drive_on: str = "right", origin: LatLng | None = None
+) -> tuple[list[Lanelet], LatLng]:
+    """Parse raw OSM XML and synthesize the per-lane lanelet map."""
+    if drive_on not in {"right", "left"}:
+        raise ValueError("drive_on must be 'right' or 'left'")
+    root = ET.fromstring(xml_text)
+
+    coords: dict[int, LatLng] = {
+        int(el.attrib["id"]): LatLng(lat=float(el.attrib["lat"]), lng=float(el.attrib["lon"]))
+        for el in root.findall("node")
+    }
+    ways: list[_Way] = []
+    for el in root.findall("way"):
+        tags = {t.attrib["k"]: t.attrib["v"] for t in el.findall("tag")}
+        highway = tags.get("highway", "")
+        if not _DRIVABLE.match(highway) or tags.get("area") == "yes":
+            continue
+        node_ids = tuple(
+            int(nd.attrib["ref"]) for nd in el.findall("nd") if int(nd.attrib["ref"]) in coords
+        )
+        if len(node_ids) < 2:
+            continue
+        if tags.get("oneway") == "-1":  # reversed oneway: normalize
+            node_ids = node_ids[::-1]
+            tags = {**tags, "oneway": "yes"}
+        ways.append(_Way(id=int(el.attrib["id"]), nodes=node_ids, tags=tags))
+
+    if not ways:
+        raise ValueError("no drivable ways found in OSM extract")
+
+    used = [nid for way in ways for nid in way.nodes]
+    if origin is None:
+        lats = [coords[n].lat for n in set(used)]
+        lngs = [coords[n].lng for n in set(used)]
+        origin = LatLng(lat=(min(lats) + max(lats)) / 2, lng=(min(lngs) + max(lngs)) / 2)
+    projector = LocalProjector(origin)
+    points = {nid: projector.to_local(coords[nid]) for nid in set(used)}
+
+    node_way_count: dict[int, int] = {}
+    for way in ways:
+        for nid in set(way.nodes):
+            node_way_count[nid] = node_way_count.get(nid, 0) + 1
+    junctions = {nid for nid, count in node_way_count.items() if count >= 2}
+
+    importer = _Importer(drive_on=drive_on)
+    incoming: dict[int, list[_DirectedLanes]] = {}
+    outgoing: dict[int, list[_DirectedLanes]] = {}
+
+    for way in ways:
+        # Split at internal junction nodes.
+        cut_indices = (
+            [0]
+            + [i for i in range(1, len(way.nodes) - 1) if way.nodes[i] in junctions]
+            + [len(way.nodes) - 1]
+        )
+        fwd_n, bwd_n = lane_counts(way.tags)
+        speed = parse_maxspeed(way.tags.get("maxspeed"), way.tags.get("highway", ""))
+        oneway = bwd_n == 0
+
+        for a, b in itertools.pairwise(cut_indices):
+            seg_nodes = way.nodes[a : b + 1]
+            geometry = _dedupe([points[n] for n in seg_nodes])
+            if len(geometry) < 2:
+                continue
+            length = sum(p.distance_to(q) for p, q in itertools.pairwise(geometry))
+            if length < MIN_SEGMENT_LENGTH_M:
+                # Sub-junction sliver (e.g. traffic-island node pairs); the
+                # intersection connectors of its end nodes cover the gap.
+                continue
+            trim_start = INTERSECTION_TRIM_M if seg_nodes[0] in junctions else 0.0
+            trim_end = INTERSECTION_TRIM_M if seg_nodes[-1] in junctions else 0.0
+            if length - trim_start - trim_end < MIN_SEGMENT_LENGTH_M:
+                spare = max(0.0, length - MIN_SEGMENT_LENGTH_M)
+                scale = spare / (trim_start + trim_end) if trim_start + trim_end > 0 else 0.0
+                trim_start *= scale
+                trim_end *= scale
+            geometry = _dedupe(_polyline_trim(geometry, trim_start, trim_end))
+            if len(geometry) < 2:
+                continue
+
+            for reverse, n_lanes in ((False, fwd_n), (True, bwd_n)):
+                if n_lanes == 0:
+                    continue
+                geom = list(reversed(geometry)) if reverse else list(geometry)
+                lanes = importer.expand_segment(geom, n_lanes, speed, centered=oneway)
+                if lanes is None:
+                    continue
+                importer.lanelets.extend(lanes)
+                start_node = seg_nodes[-1] if reverse else seg_nodes[0]
+                end_node = seg_nodes[0] if reverse else seg_nodes[-1]
+                directed = _DirectedLanes(
+                    lanes=lanes, start_node=start_node, end_node=end_node, speed_mps=speed
+                )
+                outgoing.setdefault(start_node, []).append(directed)
+                incoming.setdefault(end_node, []).append(directed)
+
+    _build_connectors(importer, incoming, outgoing)
+    return importer.lanelets, origin
+
+
+def _signed_angle(a: float, b: float) -> float:
+    return math.atan2(math.sin(b - a), math.cos(b - a))
+
+
+def _build_connectors(
+    importer: _Importer,
+    incoming: dict[int, list[_DirectedLanes]],
+    outgoing: dict[int, list[_DirectedLanes]],
+) -> None:
+    for node, arrivals in sorted(incoming.items()):
+        departures = outgoing.get(node, [])
+        for arr in arrivals:
+            for dep in departures:
+                delta = _signed_angle(arr.heading_out(), dep.heading_in())
+                if abs(delta) >= UTURN_MIN_RAD:
+                    continue
+                n_in, n_out = len(arr.lanes), len(dep.lanes)
+                if abs(delta) < STRAIGHT_MAX_RAD:
+                    speed = min(arr.speed_mps, dep.speed_mps)
+                    for k in range(n_in):
+                        importer.connector(arr.lanes[k], dep.lanes[min(k, n_out - 1)], speed)
+                elif delta > 0:  # left turn: leftmost lane only
+                    speed = min(arr.speed_mps, dep.speed_mps, TURN_SPEED_MPS)
+                    importer.connector(arr.lanes[0], dep.lanes[0], speed)
+                else:  # right turn: rightmost lane only
+                    speed = min(arr.speed_mps, dep.speed_mps, TURN_SPEED_MPS)
+                    importer.connector(arr.lanes[n_in - 1], dep.lanes[n_out - 1], speed)

@@ -10,23 +10,28 @@ from __future__ import annotations
 import secrets
 from collections import OrderedDict
 from dataclasses import dataclass
+from pathlib import Path
 
-from avmap_tools import LocalProjector, build_graph, synthetic_town, validate_map
+from avmap_tools import LocalProjector, build_graph, read_osm, synthetic_town, validate_map
 
 from avcore import (
     Distance,
     LaneletId,
     LatLng,
+    MapValidationError,
     Point2D,
     RouteResult,
     TravelTime,
+    filter_lanelets,
     plan_route,
 )
 from avcore.graph import RoutingGraph
 from avcore.models import Lanelet
 from webdemo_backend.schemas import CostKind
 
-MAX_SNAP_DISTANCE_M = 60.0
+# Must exceed half an Eixample block diagonal (~70 m): a click in the middle
+# of a large city block should still snap to the nearest surrounding street.
+MAX_SNAP_DISTANCE_M = 100.0
 MAX_STORED_ROUTES = 1000
 DEFAULT_ORIGIN = LatLng(lat=43.7384, lng=7.4246)  # Monaco
 
@@ -44,13 +49,20 @@ class StoredRoute:
 class MapService:
     def __init__(self, lanelets: list[Lanelet], origin: LatLng) -> None:
         validate_map(lanelets).raise_if_failed()
-        self._lanelets = {ll.id: ll for ll in lanelets}
-        self._graph: RoutingGraph = build_graph(lanelets)
+        # Restrict to the sane, largest connected component: real-map imports
+        # can carry bbox-clipped stubs that would strand the vehicle.
+        self._graph: RoutingGraph = filter_lanelets(build_graph(lanelets))
+        if len(self._graph) == 0:
+            raise MapValidationError("no drivable connected lanelets after filtering")
+        self._lanelets = {lid: self._graph.lanelet(lid) for lid in self._graph}
         self.projector = LocalProjector(origin)
         self.origin = origin
-        # Snap index: every centerline vertex of every lanelet.
-        self._snap_points: list[tuple[Point2D, LaneletId]] = [
-            (point, ll.id) for ll in lanelets for point in ll.centerline
+        # Snap index: centerline segments (vertex-only snapping fails on long
+        # straight blocks where vertices are ~100 m apart).
+        self._snap_segments: list[tuple[Point2D, Point2D, LaneletId]] = [
+            (a, b, ll.id)
+            for ll in self._lanelets.values()
+            for a, b in zip(ll.centerline, ll.centerline[1:], strict=False)
         ]
         self._routes: OrderedDict[str, StoredRoute] = OrderedDict()
 
@@ -58,17 +70,30 @@ class MapService:
     def from_synthetic_town(cls, blocks: int = 3, origin: LatLng = DEFAULT_ORIGIN) -> MapService:
         return cls(synthetic_town(blocks, blocks), origin)
 
+    @classmethod
+    def from_osm_artifact(cls, path: str) -> MapService:
+        """Load the canonical Lanelet2 artifact produced by avmap_tools."""
+        lanelets, origin = read_osm(Path(path).read_text(encoding="utf-8"))
+        return cls(lanelets, origin)
+
     @property
     def lanelet_count(self) -> int:
         return len(self._lanelets)
 
     def snap(self, coord: LatLng) -> LaneletId:
-        """Nearest lanelet to a clicked coordinate, within the snap radius."""
+        """Nearest lanelet (by centerline segment distance) within snap radius."""
         point = self.projector.to_local(coord)
         best_id: LaneletId | None = None
         best_d = MAX_SNAP_DISTANCE_M
-        for candidate, lanelet_id in self._snap_points:
-            d = candidate.distance_to(point)
+        for a, b, lanelet_id in self._snap_segments:
+            abx, aby = b.x - a.x, b.y - a.y
+            seg_len_sq = abx * abx + aby * aby
+            if seg_len_sq == 0:
+                d = a.distance_to(point)
+            else:
+                t = ((point.x - a.x) * abx + (point.y - a.y) * aby) / seg_len_sq
+                t = max(0.0, min(1.0, t))
+                d = Point2D(a.x + t * abx, a.y + t * aby).distance_to(point)
             if d < best_d:
                 best_d = d
                 best_id = lanelet_id

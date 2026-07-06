@@ -1,0 +1,5 @@
+projector_type: local_cartesian_utm
+map_origin:
+  latitude: 41.391464400000004
+  longitude: 2.16537545
+  altitude: 0.0

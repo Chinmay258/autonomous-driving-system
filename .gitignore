@@ -27,3 +27,4 @@ artifacts/scratch/
 Thumbs.db
 .idea/
 .vscode/
+maps/*.overpass.xml

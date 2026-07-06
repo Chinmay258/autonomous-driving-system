@@ -1,0 +1,36 @@
+# Laptop hosting (ADR-0003): demo + Cloudflare Tunnel, strictly resource-capped
+# so these containers can never contend with the trading stack on this machine.
+#
+#   docker compose -f infra/docker-compose.yml up -d --build
+#   docker logs av_tunnel   # shows the public https URL (quick tunnel mode)
+name: av-demo
+
+services:
+  demo:
+    build:
+      context: ..
+    image: av-demo:latest
+    container_name: av_demo
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
+    ports:
+      - "127.0.0.1:8018:8000" # local smoke checks only; public traffic uses the tunnel
+
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: av_tunnel
+    restart: unless-stopped
+    mem_limit: 128m
+    cpus: 0.25
+    depends_on:
+      - demo
+    # Quick tunnel: free, zero-setup, ephemeral *.trycloudflare.com URL.
+    command: tunnel --no-autoupdate --url http://demo:8000
+    # Permanent named tunnel on your own domain instead:
+    #   1) Cloudflare dashboard -> Zero Trust -> Tunnels -> create, copy token
+    #   2) put TUNNEL_TOKEN=... in infra/.env (gitignored)
+    #   3) swap the two lines below for the two above:
+    # command: tunnel --no-autoupdate run
+    # environment:
+    #   - TUNNEL_TOKEN=${TUNNEL_TOKEN}

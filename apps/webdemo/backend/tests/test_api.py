@@ -109,6 +109,25 @@ class TestDriveWebSocket:
                 ws.receive_json()
             assert excinfo.value.code == 4404
 
+    def test_concurrent_drive_cap(self, service: MapService, monkeypatch) -> None:
+        monkeypatch.setenv("AV_TOWN_BLOCKS", "2")
+        monkeypatch.setenv("AV_SIM_REALTIME", "0")
+        monkeypatch.setenv("AV_MAX_CONCURRENT_DRIVES", "0")
+        capped = TestClient(create_app())
+        response = capped.post(
+            "/plan",
+            json={
+                "start": town_coord(service, 20.0, -1.75),
+                "goal": town_coord(service, 100.0, 78.25),
+            },
+        )
+        route_id = response.json()["route_id"]
+        with capped.websocket_connect(f"/ws/drive?route_id={route_id}") as ws:
+            ws.send_json({"cmd": "start"})
+            with pytest.raises(WebSocketDisconnect) as excinfo:
+                ws.receive_json()
+            assert excinfo.value.code == 4429
+
     def test_drive_to_arrival(self, client: TestClient, service: MapService) -> None:
         route_id = self._plan(client, service)
         frames = []

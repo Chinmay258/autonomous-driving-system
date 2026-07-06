@@ -39,7 +39,8 @@ def validate_map(lanelets: Sequence[Lanelet]) -> ValidationReport:
     for lanelet in lanelets:
         if not MIN_LANE_WIDTH_M <= lanelet.mean_width_m <= MAX_LANE_WIDTH_M:
             issues.append(f"lanelet {lanelet.id}: width {lanelet.mean_width_m:.2f} m out of range")
-        if lanelet.length_m < MIN_LANELET_LENGTH_M:
+        min_length = 0.02 if lanelet.is_connector else MIN_LANELET_LENGTH_M
+        if lanelet.length_m < min_length:
             issues.append(f"lanelet {lanelet.id}: length {lanelet.length_m:.2f} m below minimum")
 
     if not duplicate_ids:

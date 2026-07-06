@@ -184,8 +184,56 @@ def _heading(a: Point2D, b: Point2D) -> float:
     return math.atan2(b.y - a.y, b.x - a.x)
 
 
+def _folds(bound: list[Point2D], center: list[Point2D]) -> bool:
+    """True if any bound segment runs against its centerline segment (a fold:
+    the offset self-intersected because the arc radius dipped below the
+    offset distance). lanelet2 'fixes' such bounds by inverting them, which
+    silently breaks succession — so folded connectors must never be written."""
+    for i in range(min(len(bound), len(center)) - 1):
+        bx, by = bound[i + 1].x - bound[i].x, bound[i + 1].y - bound[i].y
+        cx, cy = center[i + 1].x - center[i].x, center[i + 1].y - center[i].y
+        if bx * cx + by * cy <= 0:
+            return True
+    return False
+
+
+def _uturn_arc(a: Point2D, heading_a: float, b: Point2D, samples: int = 14) -> list[Point2D]:
+    """Teardrop U-turn: a circular sweep through the junction.
+
+    A cubic hairpin between antiparallel lanes 3.5 m apart has an apex radius
+    of ~half the chord, which folds the inner offset bound. A circle of
+    radius >= 3 m centered ahead of the median keeps the inner bound radius
+    positive everywhere — the shape a real U-turn drives.
+    """
+    chord = a.distance_to(b)
+    radius = max(3.0, chord / 2.0 + 1.2)
+    fx, fy = math.cos(heading_a), math.sin(heading_a)
+    forward = math.sqrt(max(radius * radius - (chord / 2.0) ** 2, 0.25))
+    cx = (a.x + b.x) / 2.0 + fx * forward
+    cy = (a.y + b.y) / 2.0 + fy * forward
+    ang_a = math.atan2(a.y - cy, a.x - cx)
+    ang_b = math.atan2(b.y - cy, b.x - cx)
+    # Pick the rotation whose tangent at `a` points along the entry heading.
+    tangent_ccw = (-math.sin(ang_a), math.cos(ang_a))
+    ccw = (tangent_ccw[0] * fx + tangent_ccw[1] * fy) > 0
+    sweep = (ang_b - ang_a) % (2 * math.pi) if ccw else -((ang_a - ang_b) % (2 * math.pi))
+    pts = [
+        Point2D(
+            cx + radius * math.cos(ang_a + sweep * i / samples),
+            cy + radius * math.sin(ang_a + sweep * i / samples),
+        )
+        for i in range(samples + 1)
+    ]
+    return _dedupe([a, *pts[1:-1], b])
+
+
 def _cubic_fillet(
-    a: Point2D, heading_a: float, b: Point2D, heading_b: float, samples: int = 10
+    a: Point2D,
+    heading_a: float,
+    b: Point2D,
+    heading_b: float,
+    samples: int = 10,
+    reach_mult: float = 1.0,
 ) -> list[Point2D]:
     """Road fillet: cubic bezier with controls along the entry/exit tangents.
 
@@ -196,8 +244,15 @@ def _cubic_fillet(
     of a pointy apex.
     """
     gap = a.distance_to(b)
-    sharpness = 1.0 + abs(_signed_angle(heading_a, heading_b)) / math.pi  # 1..2
-    reach = min(16.0, max(2.0, 0.45 * gap * sharpness))
+    turn = abs(_signed_angle(heading_a, heading_b))
+    if turn < STRAIGHT_MAX_RAD:
+        # Near-straight: keep controls well inside the chord — a reach floor
+        # here makes control points cross on short gaps, kinking the curve so
+        # its offset bounds fold into a bowtie (which lanelet2 then "fixes"
+        # by inverting a bound, breaking succession).
+        reach = 0.3 * gap * reach_mult
+    else:
+        reach = min(24.0, max(2.0, 0.45 * gap * (1.0 + turn / math.pi)) * reach_mult)
     c1 = Point2D(a.x + math.cos(heading_a) * reach, a.y + math.sin(heading_a) * reach)
     c2 = Point2D(b.x - math.cos(heading_b) * reach, b.y - math.sin(heading_b) * reach)
     pts = []
@@ -260,23 +315,53 @@ class _Importer:
         return tuple(lanes)
 
     def connector(self, source: Lanelet, target: Lanelet, speed: float) -> None:
-        """Curved junction connector (quadratic bezier along the turn arc)."""
+        """Curved junction connector (cubic fillet along the turn arc).
+
+        Even near-touching ends get a micro-connector: lanelet2/Autoware
+        succession needs exactly shared bound nodes, which only the connector
+        provides (our own graph builder is tolerant; lanelet2 is not).
+        """
         a, b = source.centerline[-1], target.centerline[0]
-        if a.distance_to(b) < 1.0:
-            # Ends effectively touch; graph derivation links them directly
-            # (ENDPOINT_TOLERANCE_M) and a sliver lanelet would fail validation.
-            return
+        gap = a.distance_to(b)
+        if gap < 0.02:
+            return  # genuinely coincident; shared nodes already exist
         heading_a = _heading(source.centerline[-2], source.centerline[-1])
         heading_b = _heading(target.centerline[0], target.centerline[1])
-        center = _cubic_fillet(a, heading_a, b, heading_b)
-        if len(center) < 2:
-            return
+        turn = abs(_signed_angle(heading_a, heading_b))
         half = LANE_WIDTH_M / 2.0
+
+        def build(center: list[Point2D]) -> tuple[list[Point2D], list[Point2D], bool]:
+            left = list(_offset_polyline(center, half))
+            right = list(_offset_polyline(center, -half))
+            folded = _folds(left, center) or _folds(right, center)
+            # Snap bound endpoints onto the street lanes' exact bound nodes:
+            # lanelet2 derives succession from shared points, so the connector
+            # must reuse them, not approximate them.
+            left[0], left[-1] = source.left_bound[-1], target.left_bound[0]
+            right[0], right[-1] = source.right_bound[-1], target.right_bound[0]
+            return left, right, folded
+
+        if turn >= UTURN_MIN_RAD:
+            left, right, folded = build(_uturn_arc(a, heading_a, b))
+        elif gap < 3.0 and turn < STRAIGHT_MAX_RAD:
+            left, right, folded = build([a, b])
+        else:
+            # Widen the arc until neither offset bound folds (inner offsets
+            # fold when the arc radius dips below the half lane width).
+            for attempt in range(4):
+                center = _cubic_fillet(a, heading_a, b, heading_b, reach_mult=1.5**attempt)
+                left, right, folded = build(center)
+                if not folded:
+                    break
+            if folded:
+                left, right, folded = build([a, b])  # straight degrade for turns
+        if folded:
+            return  # unbuildable without corrupting the map
         self.lanelets.append(
             Lanelet(
                 id=self._new_id(),
-                left_bound=_offset_polyline(center, half),
-                right_bound=_offset_polyline(center, -half),
+                left_bound=tuple(_dedupe(left)),
+                right_bound=tuple(_dedupe(right)),
                 speed_limit_mps=speed,
                 is_connector=True,
             )

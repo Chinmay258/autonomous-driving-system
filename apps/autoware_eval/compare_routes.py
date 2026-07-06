@@ -16,8 +16,9 @@ import json
 import sys
 from pathlib import Path
 
-from avcore import LaneletId, TravelTime, filter_lanelets, plan_route
 from avmap_tools import build_graph, read_osm
+
+from avcore import LaneletId, TravelTime, filter_lanelets, plan_route
 
 REPO = Path(__file__).resolve().parents[2]
 ARTIFACT = REPO / "maps" / "barcelona_eixample.osm"
@@ -31,7 +32,9 @@ def load_graph():
 def pick_scenarios(graph) -> list[dict[str, int]]:
     """Deterministic scenario pairs spread across the map."""
     ids = sorted(graph)
-    mids = {lid: graph.lanelet(lid).centerline[len(graph.lanelet(lid).centerline) // 2] for lid in ids}
+    mids = {
+        lid: graph.lanelet(lid).centerline[len(graph.lanelet(lid).centerline) // 2] for lid in ids
+    }
     anchor = ids[0]
     by_dist = sorted(ids, key=lambda lid: mids[anchor].distance_to(mids[lid]))
     return [
@@ -87,8 +90,14 @@ def main() -> int:
 
     graph, origin = load_graph()
     if args.cmd == "scenarios":
-        print(json.dumps({"origin": {"lat": origin.lat, "lng": origin.lng},
-                          "scenarios": pick_scenarios(graph)}))
+        print(
+            json.dumps(
+                {
+                    "origin": {"lat": origin.lat, "lng": origin.lng},
+                    "scenarios": pick_scenarios(graph),
+                }
+            )
+        )
         return 0
     if args.cmd == "ours":
         print(json.dumps(our_route(graph, args.start_id, args.goal_id)))

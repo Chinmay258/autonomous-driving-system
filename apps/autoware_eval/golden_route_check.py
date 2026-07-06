@@ -29,9 +29,7 @@ from rclpy.qos import DurabilityPolicy, QoSProfile
 def pose_on_lanelet(lanelet_obj, fraction: float):
     """(x, y, yaw) at an arclength fraction along the lanelet centerline."""
     pts = [(p.x, p.y) for p in lanelet_obj.centerline]
-    seg_lengths = [
-        math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts[:-1], pts[1:])
-    ]
+    seg_lengths = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in zip(pts[:-1], pts[1:])]
     total = sum(seg_lengths)
     target = max(0.0, min(total, fraction * total))
     run = 0.0
@@ -68,16 +66,17 @@ class GoldenProbe(Node):
         lmap = lanelet2.io.load(args.map, projector)
         start = lmap.laneletLayer[args.start_id]
         goal = lmap.laneletLayer[args.goal_id]
+        self._goal_id = args.goal_id
         self._start_pose = make_pose(*pose_on_lanelet(start, 0.5))
         self._goal_pose = make_pose(*pose_on_lanelet(goal, 0.5))
         self.route_ids = None
 
-        self._pub_init = self.create_publisher(
-            PoseWithCovarianceStamped, "/initialpose", 1
-        )
-        self._pub_goal = self.create_publisher(
-            PoseStamped, "/planning/mission_planning/goal", 1
-        )
+        self._pub_init = self.create_publisher(PoseWithCovarianceStamped, "/initialpose", 1)
+        # Feed the simulator directly too: the rviz->adaptor->initializer
+        # chain can stall headless, and /initialpose3d is what the planning
+        # simulator actually consumes.
+        self._pub_init3d = self.create_publisher(PoseWithCovarianceStamped, "/initialpose3d", 1)
+        self._pub_goal = self.create_publisher(PoseStamped, "/planning/mission_planning/goal", 1)
         route_qos = QoSProfile(depth=1, durability=DurabilityPolicy.TRANSIENT_LOCAL)
         self.create_subscription(
             LaneletRoute, "/planning/mission_planning/route", self._on_route, route_qos
@@ -87,7 +86,10 @@ class GoldenProbe(Node):
 
     def _tick(self) -> None:
         self._ticks += 1
-        if self._ticks == 2:
+        if self.route_ids is not None:
+            return
+        # Re-publish until the route lands: node startup order is arbitrary.
+        if self._ticks % 8 == 2:
             msg = PoseWithCovarianceStamped()
             msg.header.frame_id = "map"
             msg.header.stamp = self.get_clock().now().to_msg()
@@ -96,8 +98,9 @@ class GoldenProbe(Node):
             msg.pose.covariance[7] = 0.25
             msg.pose.covariance[35] = 0.07
             self._pub_init.publish(msg)
-            self.get_logger().info("published /initialpose")
-        if self._ticks == 6:  # give localization/sim time to settle
+            self._pub_init3d.publish(msg)
+            self.get_logger().info("published /initialpose + /initialpose3d")
+        if self._ticks % 8 == 6:
             msg = PoseStamped()
             msg.header.frame_id = "map"
             msg.header.stamp = self.get_clock().now().to_msg()
@@ -106,10 +109,13 @@ class GoldenProbe(Node):
             self.get_logger().info("published goal")
 
     def _on_route(self, msg: LaneletRoute) -> None:
+        if not msg.segments:
+            return
+        last = {prim.id for prim in msg.segments[-1].primitives}
+        if self._goal_id not in last:
+            return  # latched route from a previous request; keep waiting
         self.route_ids = [seg.preferred_primitive.id for seg in msg.segments]
-        self.alternatives = [
-            [prim.id for prim in seg.primitives] for seg in msg.segments
-        ]
+        self.alternatives = [[prim.id for prim in seg.primitives] for seg in msg.segments]
 
 
 def main() -> int:

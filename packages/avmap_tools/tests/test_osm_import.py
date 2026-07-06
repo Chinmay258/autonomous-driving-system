@@ -80,6 +80,22 @@ class TestLaneSynthesis:
         # Bezier sampling: turning connectors carry more than 2 bound points.
         assert max(len(c.left_bound) for c in connectors) > 2
 
+    def test_connector_endpoints_reuse_street_nodes(self, imported) -> None:
+        # lanelet2/Autoware derive succession from EXACT shared points, so
+        # connector bounds must start/end on street-lane bound nodes.
+        lanelets, _ = imported
+        street_ends = set()
+        for ll in lanelets:
+            if not ll.is_connector:
+                street_ends.update(
+                    {ll.left_bound[0], ll.left_bound[-1], ll.right_bound[0], ll.right_bound[-1]}
+                )
+        for c in (ll for ll in lanelets if ll.is_connector):
+            assert c.left_bound[0] in street_ends
+            assert c.left_bound[-1] in street_ends
+            assert c.right_bound[0] in street_ends
+            assert c.right_bound[-1] in street_ends
+
     def test_map_validates(self, imported) -> None:
         lanelets, _ = imported
         report = validate_map(lanelets)

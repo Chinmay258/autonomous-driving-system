@@ -28,3 +28,7 @@ Thumbs.db
 .idea/
 .vscode/
 maps/*.overpass.xml
+
+# Local/private (not for the public repo)
+trading_stack_stopped.txt
+.claude/

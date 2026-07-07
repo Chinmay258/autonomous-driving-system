@@ -352,7 +352,7 @@ Total core (P0–P7): ~4–6 weeks at an evenings/weekends pace.
 |---|---|---|
 | 1 | **Scope sequencing** | ✅ `avcore` + Track A first (P0–P4), then Track B (P5–P7). De-risks the shared library and yields a working Autoware result early. |
 | 2 | **Demo map region** | ✅ **Monaco ~2 km²** — compact, clean OSM lane data, recognizable. |
-| 3 | **Hosting** | ✅ **Cloudflare Tunnel from the laptop** (machine runs 24/7 for the trading stack, so always-on is satisfied; free HTTPS + custom domain, no port-forwarding, origin IP hidden). Designed for **zero-friction later transition to Fly.io**: the demo is one Docker image with all config via env vars; migration = `fly launch` + repoint DNS. `infra/` carries both the compose+cloudflared setup and a `fly.toml` stub. |
+| 3 | **Hosting** | ✅ **Cloudflare Tunnel from the dev host** (machine runs 24/7, so always-on is satisfied; free HTTPS + custom domain, no port-forwarding, origin IP hidden). Designed for **zero-friction later transition to Fly.io**: the demo is one Docker image with all config via env vars; migration = `fly launch` + repoint DNS. `infra/` carries both the compose+cloudflared setup and a `fly.toml` stub. |
 | 4 | **Lane-detection depth** | ✅ Classical OpenCV baseline **+ one pretrained UFLD-ONNX comparison** table (inference on RTX 3050). |
 | 5 | **Tooling** | Default: **`uv`** Python workspace + **Git LFS** for map/clip artifacts, **pnpm** for frontend, **Make** as entrypoint. |
 

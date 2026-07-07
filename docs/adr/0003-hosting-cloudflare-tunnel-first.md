@@ -3,9 +3,9 @@
 **Status:** Accepted · 2026-07-05
 
 ## Context
-The demo needs a public HTTPS/WSS endpoint at ~$0. The dev laptop already runs
-24/7 (hosts a live trading stack), so "laptop sleeps → dead link" does not
-apply. Recruiters must never hit a cold-start stall.
+The demo needs a public HTTPS/WSS endpoint at ~$0. The dev host already runs
+24/7, so "machine sleeps → dead link" does not apply, and recruiters must
+never hit a cold-start stall.
 
 ## Decision
 Primary hosting: the demo container runs on the laptop's Docker alongside a
@@ -23,4 +23,4 @@ stub + DNS repoint; nothing else changes.
 − Shares fate with the laptop (reboots/outages take the demo down) — acceptable
   for a portfolio; revisit via Fly.io if it becomes a problem.
 − Keep the demo container resource-capped (compose `mem_limit`/`cpus`) so it can
-  never starve the trading stack.
+  never starve other workloads on the host.

@@ -1,14 +1,23 @@
 # Autonomous Vehicle Driving System
 
-Lane detection → Lanelet2 map conversion → route filtering → A* route planning →
+[![CI](https://github.com/Chinmay258/autonomous-driving-system/actions/workflows/ci.yml/badge.svg)](https://github.com/Chinmay258/autonomous-driving-system/actions/workflows/ci.yml)
+[![Python 3.11](https://img.shields.io/badge/python-3.11-blue.svg)](https://www.python.org/)
+[![Checked with mypy](https://img.shields.io/badge/mypy-strict-2a6db2.svg)](https://mypy-lang.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+Lane detection → Lanelet2 map conversion → route filtering → A\* route planning →
 validated in the **Autoware Planning Simulator** — plus a **live web demo** on a
 **real city map (Barcelona's Eixample, imported lane-by-lane from OpenStreetMap)**:
 drop two markers and a simulated vehicle plans a lane-level route and drives it,
 with strict lane discipline — right turns only from the rightmost lane, left
-turns only from the leftmost, visible lane changes before every turn.
+turns only from the leftmost, and lane changes before every turn.
+
+> **▶ Live demo:** open the deployed app (link in the repository **About** panel),
+> click a start and a destination on the map, and watch the vehicle drive the route.
 
 **Docs:** [SPEC.md](SPEC.md) (scope & feasibility) · [ARCHITECTURE.md](ARCHITECTURE.md)
-(enterprise architecture, contracts, phased plan) · [docs/adr/](docs/adr/) (decisions)
+(architecture, contracts, phased plan) · [docs/PROJECT_REPORT.md](docs/PROJECT_REPORT.md)
+(detailed working report) · [docs/adr/](docs/adr/) (design decisions)
 
 ## Design in one line
 One shared planning core (`packages/avcore`, pure Python, mypy-strict) is

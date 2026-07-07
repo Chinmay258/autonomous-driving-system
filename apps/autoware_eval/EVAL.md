@@ -4,11 +4,11 @@ Goal: validate that the same Lanelet2 artifact driving the web demo loads in
 Autoware, and that Autoware's mission planner picks routes consistent with our
 A* (golden-reference test, headless — no rviz needed).
 
-## Constraints on this machine (do not violate)
-The WSL2 VM (6.8 GB) is shared with a LIVE trading stack. The Autoware
-container must always run with `--memory=4g --memory-swap=4g --cpus=6` so any
-OOM kills Autoware, never the trading containers. Never run `wsl --shutdown`
-or edit `.wslconfig` while the trading stack is up.
+## Resource constraints (shared WSL2 host)
+The WSL2 VM is shared with other workloads. Run the Autoware container with
+`--memory=4g --memory-swap=4g --cpus=6` so any OOM kills Autoware first, never
+the host's other containers. Avoid `wsl --shutdown` or editing `.wslconfig`
+while other containers on the host are running.
 
 ## Recipe
 ```powershell
@@ -52,7 +52,7 @@ connector individually, so the comparator reports:
 ## Results — 2026-07-06, image `latest-runtime` (8.81 GB), map `barcelona_eixample` (3,055 lanelets)
 
 The artifact loaded natively: `Succeeded to load lanelet2_map. Map is published.`
-Peak container memory ~2.9 GB of the 4 GB cap; trading stack unaffected.
+Peak container memory ~2.9 GB of the 4 GB cap; other host workloads unaffected.
 
 | Scenario | Start→Goal | Ours | Autoware | Verdict |
 |---|---|---|---|---|

@@ -1,5 +1,5 @@
-# Laptop hosting (ADR-0003): demo + Cloudflare Tunnel, strictly resource-capped
-# so these containers can never contend with the trading stack on this machine.
+# Self-hosting (ADR-0003): demo + Cloudflare Tunnel, strictly resource-capped
+# so these containers can never contend with other workloads on the host.
 #
 #   docker compose -f infra/docker-compose.yml up -d --build
 #   docker logs av_tunnel   # shows the public https URL (quick tunnel mode)

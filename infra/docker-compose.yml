@@ -25,11 +25,14 @@ services:
     cpus: 0.25
     depends_on:
       - demo
-    # Quick tunnel: free, zero-setup, ephemeral *.trycloudflare.com URL.
-    command: tunnel --no-autoupdate --url http://demo:8000
-    # Permanent named tunnel on your own domain instead:
-    #   1) Cloudflare dashboard -> Zero Trust -> Tunnels -> create, copy token
-    #   2) put TUNNEL_TOKEN=... in infra/.env (gitignored)
+    # Permanent named tunnel: TUNNEL_TOKEN lives in infra/.env (gitignored).
+    # Route traffic in the Cloudflare dashboard: Public Hostname ->
+    # Service = http://demo:8000 (the connector shares this compose network).
+    command: tunnel --no-autoupdate run
+    environment:
+      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
+    # Ephemeral fallback (no account needed):
+    #   command: tunnel --no-autoupdate --url http://demo:8000
     #   3) swap the two lines below for the two above:
     # command: tunnel --no-autoupdate run
     # environment:

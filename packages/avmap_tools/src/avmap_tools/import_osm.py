@@ -52,6 +52,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--bbox", required=True, help="south,west,north,east (WGS84)")
     parser.add_argument("--out", required=True, help="output path prefix (no extension)")
     parser.add_argument("--drive-on", choices=["right", "left"], default="right")
+    parser.add_argument(
+        "--single-lane",
+        action="store_true",
+        help="one lane per direction (no lane changes; for the Autoware sim)",
+    )
     args = parser.parse_args(argv)
 
     bbox = tuple(float(v) for v in args.bbox.split(","))
@@ -62,7 +67,7 @@ def main(argv: list[str] | None = None) -> int:
     raw = fetch_overpass(
         (bbox[0], bbox[1], bbox[2], bbox[3]), out.parent / f"{out.name}.overpass.xml"
     )
-    lanelets, origin = import_osm_roads(raw, drive_on=args.drive_on)
+    lanelets, origin = import_osm_roads(raw, drive_on=args.drive_on, single_lane=args.single_lane)
     report = validate_map(lanelets)
     print(f"lanelets: {report.lanelet_count}; issues: {list(report.issues) or 'none'}")
     report.raise_if_failed()

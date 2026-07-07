@@ -210,6 +210,23 @@ class TestConnectorCurvature:
             )
 
 
+class TestSingleLane:
+    def test_no_lateral_edges_and_fewer_lanelets(self) -> None:
+        from avcore import EdgeKind
+
+        multi, _ = import_osm_roads(cross_fixture(), origin=ORIGIN)
+        single, _ = import_osm_roads(cross_fixture(), origin=ORIGIN, single_lane=True)
+        assert len(single) < len(multi)
+        graph = build_graph(single)
+        lateral = [
+            e
+            for lid in graph
+            for e in graph.edges_from(lid)
+            if e.kind in (EdgeKind.LEFT, EdgeKind.RIGHT)
+        ]
+        assert lateral == []  # no lane changes possible
+
+
 class TestDriveOnLeft:
     def test_left_hand_traffic_mirrors_lanes(self) -> None:
         lanelets, _ = import_osm_roads(cross_fixture(), origin=ORIGIN, drive_on="left")

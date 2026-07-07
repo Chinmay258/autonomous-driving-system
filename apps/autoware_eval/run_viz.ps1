@@ -32,7 +32,7 @@ do { Start-Sleep 5 } until ((docker logs autoware_viz 2>&1 | Select-String "wait
 & "$PSScriptRoot\open_rviz.ps1"
 
 Write-Host "placing vehicle + goal (cross-map scenario, single-lane route)..."
-docker exec autoware_viz bash -lc "source /opt/autoware/setup.bash 2>/dev/null; python3 /eval/golden_route_check.py --map /autoware_map/lanelet2_map.osm --origin-lat 41.391464400000004 --origin-lon 2.16537545 --start-id 1 --goal-id 701 --timeout 120" | Select-String "GOLDEN_ROUTE=" | Out-Null
+docker exec autoware_viz bash -lc "source /opt/autoware/setup.bash 2>/dev/null; python3 /eval/golden_route_check.py --map /autoware_map/lanelet2_map.osm --origin-lat 41.391464400000004 --origin-lon 2.16537545 --start-id 1 --goal-id 50 --timeout 120" | Select-String "GOLDEN_ROUTE=" | Out-Null
 
 Write-Host "engaging autonomous mode (retries while diagnostics settle)..."
 foreach ($i in 1..8) {

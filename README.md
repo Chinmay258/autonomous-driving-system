@@ -12,8 +12,10 @@ drop two markers and a simulated vehicle plans a lane-level route and drives it,
 with strict lane discipline — right turns only from the rightmost lane, left
 turns only from the leftmost, and lane changes before every turn.
 
-> **▶ Live demo:** open the deployed app (link in the repository **About** panel),
-> click a start and a destination on the map, and watch the vehicle drive the route.
+> **▶ Live demo: https://av-route-demo.fly.dev** — click a start and a destination
+> on the map and watch the vehicle plan a lane-level route and drive it.
+> *(Hosted on Fly.io's free tier; it auto-sleeps when idle, so the first request
+> after a while takes a few seconds to wake.)*
 
 **Docs:** [SPEC.md](SPEC.md) (scope & feasibility) · [ARCHITECTURE.md](ARCHITECTURE.md)
 (architecture, contracts, phased plan) · [docs/PROJECT_REPORT.md](docs/PROJECT_REPORT.md)

@@ -1,7 +1,7 @@
 # Migration target (ADR-0003). Same image, zero code changes:
 #   fly launch --copy-config --no-deploy && fly deploy
 app = "av-route-demo"
-primary_region = "fra"
+primary_region = "bom"
 
 [http_service]
   internal_port = 8000

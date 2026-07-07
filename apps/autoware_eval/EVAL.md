@@ -92,7 +92,18 @@ Turn connectors are now tangent circular corner fillets (target radius 5 m,
 floor 2.5 m, straight lead-in/out) with a 12 m junction setback; a regression
 test bounds every connector's max curvature. Artifact regenerated.
 
-### Open issue: route_handler stops chaining at the current lanelet
+### RESOLVED (2026-07-07): car completes full routes on the single-lane sim map
+The stalls were Autoware's lane_change module failing on short city blocks.
+Fix: `maps/barcelona_eixample_sim.osm` (single lane per direction,
+`import_osm_roads(single_lane=True)`) has ZERO lateral edges, so routes are
+pure succession + turns. Result: the ego drove a 21-lanelet multi-turn route
+from spawn to goal and reached **route_state=3 (ARRIVED)** — no stalls.
+`prep_map.py` bakes this map for the sim by default; `run_viz.ps1` uses it,
+launches rviz headless-then-separate (no respawn), auto-sets a route, and
+engages. The multi-lane map remains for the web demo (own sim handles lane
+changes). To watch: `powershell -File apps/autoware_eval/run_viz.ps1`.
+
+### Historical (pre-fix): route_handler stops chaining at the current lanelet
 Sharpened diagnosis (2026-07-07): `behavior_planning/path_with_lane_id`
 carries **only the ego's current lanelet** (`lane_ids=[580]`, ~12 m) — the
 lane sequence never extends into the next route lanelet, so the trajectory

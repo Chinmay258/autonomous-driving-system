@@ -25,14 +25,14 @@ services:
     cpus: 0.25
     depends_on:
       - demo
-    # Permanent named tunnel: TUNNEL_TOKEN lives in infra/.env (gitignored).
-    # Route traffic in the Cloudflare dashboard: Public Hostname ->
-    # Service = http://demo:8000 (the connector shares this compose network).
-    command: tunnel --no-autoupdate run
-    environment:
-      - TUNNEL_TOKEN=${TUNNEL_TOKEN}
-    # Ephemeral fallback (no account needed):
-    #   command: tunnel --no-autoupdate --url http://demo:8000
+    # Ephemeral quick tunnel: free, no domain needed, *.trycloudflare.com URL
+    # (changes on restart). Active by default so the demo is always reachable.
+    command: tunnel --no-autoupdate --url http://demo:8000
+    # Permanent named tunnel (needs a real domain on your Cloudflare account):
+    # put TUNNEL_TOKEN in infra/.env, add a Public Hostname -> http://demo:8000
+    # in the dashboard, then swap the two lines above for:
+    #   command: tunnel --no-autoupdate run
+    #   environment: [ "TUNNEL_TOKEN=${TUNNEL_TOKEN}" ]
     #   3) swap the two lines below for the two above:
     # command: tunnel --no-autoupdate run
     # environment:

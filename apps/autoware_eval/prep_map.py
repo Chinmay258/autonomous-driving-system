@@ -10,6 +10,7 @@ Run from the repo root:  uv run python apps/autoware_eval/prep_map.py
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -17,7 +18,11 @@ from pathlib import Path
 from avmap_tools import read_osm
 
 REPO = Path(__file__).resolve().parents[2]
-ARTIFACT = REPO / "maps" / "barcelona_eixample.osm"
+
+# Sim map: single-lane (no lane changes) if present, else the full map.
+_SIM = REPO / "maps" / "barcelona_eixample_sim.osm"
+_FULL = REPO / "maps" / "barcelona_eixample.osm"
+ARTIFACT = Path(os.environ.get("AV_SIM_MAP", str(_SIM if _SIM.exists() else _FULL)))
 MAPDIR = Path(__file__).resolve().parent / "mapdir"
 
 DUMMY_PCD = """# .PCD v0.7 - Point Cloud Data file format

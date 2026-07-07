@@ -460,9 +460,19 @@ class _Importer:
 
 
 def import_osm_roads(
-    xml_text: str, *, drive_on: str = "right", origin: LatLng | None = None
+    xml_text: str,
+    *,
+    drive_on: str = "right",
+    origin: LatLng | None = None,
+    single_lane: bool = False,
 ) -> tuple[list[Lanelet], LatLng]:
-    """Parse raw OSM XML and synthesize the per-lane lanelet map."""
+    """Parse raw OSM XML and synthesize the per-lane lanelet map.
+
+    ``single_lane`` clamps every street to one lane per direction. The result
+    has NO lateral neighbours, so a route over it is pure succession + turns
+    with zero lane changes — the robust map for the Autoware planning
+    simulator, whose lane-change module struggles on short city blocks.
+    """
     if drive_on not in {"right", "left"}:
         raise ValueError("drive_on must be 'right' or 'left'")
     root = ET.fromstring(xml_text)
@@ -533,6 +543,9 @@ def import_osm_roads(
             + [len(way.nodes) - 1]
         )
         fwd_n, bwd_n = lane_counts(way.tags)
+        if single_lane:
+            fwd_n = min(fwd_n, 1)
+            bwd_n = min(bwd_n, 1)
         speed = parse_maxspeed(way.tags.get("maxspeed"), way.tags.get("highway", ""))
         oneway = bwd_n == 0
 

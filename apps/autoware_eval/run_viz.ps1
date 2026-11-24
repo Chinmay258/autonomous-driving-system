@@ -7,7 +7,7 @@
 # Teardown everything:  docker rm -f autoware_viz
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path "$PSScriptRoot\..\..").Path
-$image = "ghcr.io/autowarefoundation/autoware:latest-runtime"
+$image = "ghcr.io/autowarefoundation/autoware:latest-runtime@sha256:3662e297d7a41fffb54a16c6e494adc118b4162e659e0aea3b2081e46bcf91d6"
 
 docker rm -f autoware_viz 2>$null | Out-Null
 # Headless sim: no rviz in the launch graph -> nothing respawns it.

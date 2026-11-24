@@ -1,7 +1,7 @@
 # End-to-end Autoware golden evaluation (headless).
 # Usage: powershell -File apps/autoware_eval/run_eval.ps1  (from repo root)
 $ErrorActionPreference = "Stop"
-$image = "ghcr.io/autowarefoundation/autoware:latest-runtime"
+$image = "ghcr.io/autowarefoundation/autoware:latest-runtime@sha256:3662e297d7a41fffb54a16c6e494adc118b4162e659e0aea3b2081e46bcf91d6"
 $root = (Resolve-Path "$PSScriptRoot\..\..").Path
 
 python -m uv run python apps/autoware_eval/prep_map.py

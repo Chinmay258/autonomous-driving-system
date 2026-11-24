@@ -1,12 +1,12 @@
 .git
 .github
 .venv
-.claude
 .mypy_cache
 .pytest_cache
 .ruff_cache
 **/__pycache__
 docs
+tools
 infra
 maps/*.overpass.xml
 maps/*_projector_info.yaml

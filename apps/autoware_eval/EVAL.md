@@ -11,6 +11,9 @@ the host's other containers. Avoid `wsl --shutdown` or editing `.wslconfig`
 while other containers on the host are running.
 
 ## Recipe
+All results below were produced with this exact image (the scripts pin it):
+`ghcr.io/autowarefoundation/autoware:latest-runtime@sha256:3662e297d7a41fffb54a16c6e494adc118b4162e659e0aea3b2081e46bcf91d6` (8.81 GB).
+
 ```powershell
 # 1. Bake the map dir (lanelet2_map.osm + projector info + dummy pcd)
 uv run python apps/autoware_eval/prep_map.py

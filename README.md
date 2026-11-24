@@ -19,7 +19,8 @@ turns only from the leftmost, and lane changes before every turn.
 
 **Docs:** [SPEC.md](SPEC.md) (scope & feasibility) · [ARCHITECTURE.md](ARCHITECTURE.md)
 (architecture, contracts, phased plan) · [docs/PROJECT_REPORT.md](docs/PROJECT_REPORT.md)
-(detailed working report) · [docs/adr/](docs/adr/) (design decisions)
+(detailed working report) · [docs/RESULTS.md](docs/RESULTS.md) (every measured number) ·
+[docs/RECREATE.md](docs/RECREATE.md) (rebuild everything from scratch) · [docs/adr/](docs/adr/) (design decisions)
 
 ## Design in one line
 One shared planning core (`packages/avcore`, pure Python, mypy-strict) is
@@ -43,9 +44,10 @@ packages/avmap_tools/     # OSM→Lanelet2 lane-level import, polyline→lanelet
 packages/avlane/          # camera lane detection: threshold→BEV→sliding-window fit, metric output
 apps/webdemo/backend/     # FastAPI /plan + /ws/drive, vehicle sim, zero-build MapLibre frontend
 apps/autoware_eval/       # headless Autoware golden evaluation (EVAL.md has results)
-docs/adr/                 # architecture decision records
+docs/                     # report, results, rebuild guide, ADRs, figures
+tools/eval/               # benchmark, load test, figure generation
 infra/                    # compose + cloudflared, fly.toml stub
-maps/                     # canonical Lanelet2 artifacts (Autoware-validated)
+maps/                     # Lanelet2 artifacts + raw OpenStreetMap extracts (ODbL)
 ```
 
 ## Run the demo locally
@@ -75,5 +77,6 @@ uv run python -m avmap_tools.import_osm --bbox "41.385,2.158,41.398,2.174" --out
 | P4 Autoware eval (headless golden test: strict route match on the same artifact) | ✅ done — [EVAL.md](apps/autoware_eval/EVAL.md) |
 | P3 lane detection (OpenCV pipeline, CI-verified vs synthetic ground truth) | ✅ done |
 
-91 tests · ~96% coverage · mypy --strict · deterministic planner.
+144 tests · 90% line coverage · mypy --strict · deterministic planner.
+Measured results: [docs/RESULTS.md](docs/RESULTS.md).
 See [ARCHITECTURE.md](ARCHITECTURE.md) §16 for acceptance criteria per phase.
